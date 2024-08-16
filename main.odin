@@ -6,9 +6,8 @@ import "core:mem"
 import "core:os"
 import SDL "vendor:sdl2"
 import SDL_Image "vendor:sdl2/image"
-import gl "vendor:OpenGL"
-import glm "core:math/linalg/glsl"
 import "core:time"
+import "core:c"
 
 state := struct {
     // resources
@@ -44,6 +43,9 @@ main :: proc() {
         defer reset_tracking_allocator(&tracking_allocator)
     }
 
+    WINDOW_WIDTH :: 1024
+    WINDOW_HEIGHT :: 768
+
     window : ^SDL.Window
     windowSurface : ^SDL.Surface
     imageSurface : ^SDL.Surface
@@ -54,47 +56,53 @@ main :: proc() {
         // log.error("SDL failed to initialize. SDL Error:", SDL.GetError())
         log.debug("SDL failed to initialize. SDL Error:", SDL.GetError())
     } else {
-        window = SDL.CreateWindow("SDL Tutorial", SDL.WINDOWPOS_UNDEFINED, SDL.WINDOWPOS_UNDEFINED, 1024, 768, {SDL.WindowFlag.SHOWN})
+        window = SDL.CreateWindow("SDL Tutorial", SDL.WINDOWPOS_UNDEFINED, SDL.WINDOWPOS_UNDEFINED, WINDOW_WIDTH, WINDOW_HEIGHT, {SDL.WindowFlag.SHOWN})
 
         if window == nil {
             // log.error("SDL failed to create window. SDL Error:", SDL.GetError())
             log.debug("SDL failed to create window. SDL Error:", SDL.GetError())
         } else {
-            windowSurface = SDL.GetWindowSurface(window)
-            image_rw = SDL.RWFromFile("resources/patternPack_tilesheet@2.png", "r")
-            imageSurface = SDL_Image.LoadPNG_RW(image_rw)
-
-            if imageSurface == nil {
-                log.debug("SDL failed to load a png. SDL Error:", SDL.GetError())
-                is_running = false
-            }
+            renderer := SDL.CreateRenderer(window, -1, {SDL.RendererFlag.SOFTWARE})
+            defer SDL.DestroyRenderer(renderer)
+            SDL.SetRenderDrawColor(renderer, 0, 0, 0, 0);
+            SDL.RenderClear(renderer);
 
             event : ^SDL.Event
 
-            for is_running {
+            game_loop: for {
                 for event: SDL.Event; SDL.PollEvent(&event); {
                     #partial switch event.type {
                     case SDL.EventType.QUIT:
-                        is_running = false
+                        break game_loop
                     case SDL.EventType.KEYDOWN:
                         #partial switch event.key.keysym.sym {
                         case SDL.Keycode.Q:
-                            is_running = false
+                            break game_loop
                         }
                     }
                 }
 
-                src_rect := SDL.Rect { x = 1_536, y = 512, w = 512, h = 512 }
-                dest_rect := SDL.Rect { x = 0, y = 0, w = 512, h = 512 }
+                SDL.SetRenderDrawColor(renderer, 255, 0, 0, 255);
 
-                SDL.BlitSurface(
-                    imageSurface,
-                    &src_rect,
-                    windowSurface,
-                    &dest_rect,
-                )
-                SDL.Delay(10)
-                SDL.UpdateWindowSurface(window)
+                for column : c.int = 0; column < WINDOW_WIDTH; column += 1 {
+                    SDL.RenderDrawPoint(renderer, column, column)
+                }
+                for y : c.int = 0; y < WINDOW_HEIGHT; y += 1 {
+                    for x : c.int = 0; x < WINDOW_WIDTH; x += 1 {
+                        r := f64(x) / (WINDOW_WIDTH-1)
+                        g := f64(y) / (WINDOW_HEIGHT-1)
+                        b := 0.0
+
+                        ir := u8(255.999 * r);
+                        ig := u8(255.999 * g);
+                        ib := u8(255.999 * b);
+
+                        SDL.SetRenderDrawColor(renderer, ir, ig, ib, 255)
+                        SDL.RenderDrawPoint(renderer, x, y)
+                    }
+                }
+
+                SDL.RenderPresent(renderer);
             }
         }
     }
