@@ -43,8 +43,8 @@ main :: proc() {
         defer reset_tracking_allocator(&tracking_allocator)
     }
 
-    WINDOW_WIDTH :: 1024
-    WINDOW_HEIGHT :: 768
+    WINDOW_WIDTH :: 640
+    WINDOW_HEIGHT :: 480
 
     window : ^SDL.Window
     windowSurface : ^SDL.Surface
@@ -88,16 +88,11 @@ main :: proc() {
                     SDL.RenderDrawPoint(renderer, column, column)
                 }
                 for y : c.int = 0; y < WINDOW_HEIGHT; y += 1 {
+                    log.debug("Scan lines remaining: ", WINDOW_HEIGHT - y)
                     for x : c.int = 0; x < WINDOW_WIDTH; x += 1 {
-                        r := f64(x) / (WINDOW_WIDTH-1)
-                        g := f64(y) / (WINDOW_HEIGHT-1)
-                        b := 0.0
+                        pixel : [3]u8 = {u8(255.999 *f64(x) / (WINDOW_WIDTH-1)), u8(255.999 *f64(y) / (WINDOW_HEIGHT-1)), 0.0}
 
-                        ir := u8(255.999 * r);
-                        ig := u8(255.999 * g);
-                        ib := u8(255.999 * b);
-
-                        SDL.SetRenderDrawColor(renderer, ir, ig, ib, 255)
+                        SDL.SetRenderDrawColor(renderer, pixel.r, pixel.g, pixel.b, 255)
                         SDL.RenderDrawPoint(renderer, x, y)
                     }
                 }
