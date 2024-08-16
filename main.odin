@@ -3,6 +3,8 @@ package main
 import "core:fmt"
 import "core:log"
 import "core:mem"
+import "core:math"
+import "core:math/linalg"
 import "core:os"
 import SDL "vendor:sdl2"
 import SDL_Image "vendor:sdl2/image"
@@ -14,6 +16,41 @@ state := struct {
     // texture_patterns: rl.Texture,
     // texture_font:     rl.Font,
 }{}
+
+vec3 :: distinct [3]f64
+vec4 :: distinct [4]f64
+Color :: distinct [4]u8
+
+Ray :: struct {
+    origin: vec3,
+    direction: vec3,
+}
+
+// WHITE :: Color { 255, 255, 255, 255 }
+// BLUE :: Color { 127, 178.2, 255, 255 }
+RED :: Color { 255, 0, 0, 255 }
+
+hit_sphere :: proc(center: vec3, radius: f64, ray : Ray) -> bool {
+    oc := center - ray.origin
+    a := linalg.dot(ray.direction, ray.direction)
+    b := -2.0 * linalg.dot(ray.direction, oc)
+    c := linalg.dot(oc, oc) - radius * radius
+    discriminant := b * b - 4 * a * c
+    return discriminant >= 0
+}
+
+ray_color :: proc(ray : Ray) -> Color {
+    if hit_sphere({ 0, 0, -1 }, 0.5, ray) {
+        return RED
+    }
+
+    unit_direction : vec3 = linalg.normalize(ray.direction)
+    a := 0.5 * (unit_direction.y + 1.0)
+    white : vec3 = { 255, 255, 255 }
+    blue : vec3 = { 127, 178.2, 255 }
+    col := (1.0 - a) * white + a * blue
+    return { u8(col.r), u8(col.g), u8(col.b), 255}
+}
 
 main :: proc() {
     when ODIN_DEBUG {
@@ -43,8 +80,34 @@ main :: proc() {
         defer reset_tracking_allocator(&tracking_allocator)
     }
 
+    ASPECT_RATIO :: 16.0 / 9.0;
     WINDOW_WIDTH :: 640
-    WINDOW_HEIGHT :: 480
+    WINDOW_HEIGHT :: WINDOW_WIDTH / ASPECT_RATIO
+
+    VIEWPORT_HEIGHT :: 2.0
+    VIEWPORT_WIDTH :: VIEWPORT_HEIGHT * (WINDOW_WIDTH / WINDOW_HEIGHT)
+
+
+    // Camera
+    focal_length := 1.0
+    viewport_height := 2.0
+    viewport_width := viewport_height * (f64(WINDOW_WIDTH) / WINDOW_HEIGHT)
+    camera_center : vec3 = {0, 0, 0}
+
+    // Calculate the vectors across the horizontal and down the vertical viewport edges.
+    viewport_u : vec3 = {viewport_width, 0, 0}
+    viewport_v : vec3 = {0, -viewport_height, 0}
+
+    // Calculate the horizontal and vertical delta vectors from pixel to pixel.
+    pixel_delta_u := viewport_u / WINDOW_WIDTH
+    pixel_delta_v := viewport_v / WINDOW_HEIGHT
+
+    // Calculate the location of the upper left pixel.
+    viewport_upper_left := camera_center - vec3({0, 0, focal_length}) - viewport_u / 2 - viewport_v / 2
+    pixel00_loc := viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v)
+
+
+
 
     window : ^SDL.Window
     windowSurface : ^SDL.Surface
@@ -69,6 +132,27 @@ main :: proc() {
 
             event : ^SDL.Event
 
+            SDL.SetRenderDrawColor(renderer, 255, 0, 0, 255);
+
+            for column : c.int = 0; column < WINDOW_WIDTH; column += 1 {
+                SDL.RenderDrawPoint(renderer, column, column)
+            }
+            for y : c.int = 0; y < WINDOW_HEIGHT; y += 1 {
+                // log.debug("Scan lines remaining: ", WINDOW_HEIGHT - y)
+                for x : c.int = 0; x < WINDOW_WIDTH; x += 1 {
+                    pixel_center := pixel00_loc + (f64(x) * pixel_delta_u) + (f64(y) * pixel_delta_v)
+                    ray_direction := pixel_center - camera_center
+                    r := Ray {origin = camera_center, direction = ray_direction}
+
+                    pixel_color := ray_color(r);
+
+                    SDL.SetRenderDrawColor(renderer, pixel_color.r, pixel_color.g, pixel_color.b, pixel_color.a)
+                    SDL.RenderDrawPoint(renderer, x, y)
+                }
+            }
+
+            SDL.RenderPresent(renderer);
+
             game_loop: for {
                 for event: SDL.Event; SDL.PollEvent(&event); {
                     #partial switch event.type {
@@ -81,23 +165,6 @@ main :: proc() {
                         }
                     }
                 }
-
-                SDL.SetRenderDrawColor(renderer, 255, 0, 0, 255);
-
-                for column : c.int = 0; column < WINDOW_WIDTH; column += 1 {
-                    SDL.RenderDrawPoint(renderer, column, column)
-                }
-                for y : c.int = 0; y < WINDOW_HEIGHT; y += 1 {
-                    log.debug("Scan lines remaining: ", WINDOW_HEIGHT - y)
-                    for x : c.int = 0; x < WINDOW_WIDTH; x += 1 {
-                        pixel : [3]u8 = {u8(255.999 *f64(x) / (WINDOW_WIDTH-1)), u8(255.999 *f64(y) / (WINDOW_HEIGHT-1)), 0.0}
-
-                        SDL.SetRenderDrawColor(renderer, pixel.r, pixel.g, pixel.b, 255)
-                        SDL.RenderDrawPoint(renderer, x, y)
-                    }
-                }
-
-                SDL.RenderPresent(renderer);
             }
         }
     }
