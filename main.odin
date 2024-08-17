@@ -204,8 +204,8 @@ camera_to_ray :: proc(camera: Camera, i: int, j: int) -> Ray {
     return { origin = camera.center, direction = pixel_sample - camera.center }
 }
 
+// Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
 sample_square :: proc() -> vec2 {
-    // Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
     return { rand.float64() - 0.5, rand.float64() - 0.5 }
 }
 
