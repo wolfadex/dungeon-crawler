@@ -17,6 +17,7 @@ state := struct {
     // texture_font:     rl.Font,
 }{}
 
+vec2 :: distinct [2]f64
 vec3 :: distinct [3]f64
 vec4 :: distinct [4]f64
 Color :: distinct [4]u8
@@ -38,20 +39,7 @@ vec3_to_color :: proc(v : vec3) -> Color {
     return { u8(v.x * 255), u8(v.y * 255), u8(v.z * 255), 255 }
 }
 
-ray_color :: proc(ray : Ray, hittables: ^[dynamic]Hittable) -> Color {
-    hit_rec : Hit
-
-    if (hit_many(hittables, ray, &hit_rec, { lower = 0, upper = math.INF_F64 })) {
-        return vec3_to_color(0.5 * (hit_rec.normal + 1))
-    }
-
-    unit_direction : vec3 = linalg.normalize(ray.direction)
-    a := 0.5 * (unit_direction.y + 1.0)
-    white : vec3 = { 1, 1, 1 }
-    blue : vec3 = { 0.5, 0.7, 1 }
-    col := (1.0 - a) * white + a * blue
-    return vec3_to_color(col)
-}
+// WORLD
 
 Hit :: struct {
     point : vec3,
@@ -124,6 +112,115 @@ hit_sphere :: proc(sphere : Sphere, ray : Ray, hit_rec : ^Hit, t_interval : Inte
     }
 }
 
+// CAMERA
+
+Camera :: struct {
+    // Set manually
+    aspect_ratio : f64,    // Ratio of image width over height
+    image_width : uint,    // Rendered image width in pixel count
+    center : vec3,         // Camera center
+    focal_length : f64,
+    viewport_height : f64,
+
+    // Calculated
+    image_height : uint,   // Rendered image height
+    pixel_delta_u : vec3,  // Offset to pixel to the right
+    pixel_delta_v : vec3,  // Offset to pixel below
+    pixel00_loc : vec3,    // Location of pixel 0, 0
+}
+
+camera_create :: proc() -> Camera {
+    aspect_ratio := 1.0
+    image_width : uint = 100
+    image_height := uint(f64(image_width) / aspect_ratio)
+    center : vec3 = {0, 0, 0}
+
+    // Determine viewport dimensions.
+    focal_length := 1.0
+    viewport_height := 2.0
+    viewport_width := viewport_height * (f64(image_width) / f64(image_height))
+
+    // Calculate the vectors across the horizontal and down the vertical viewport edges.
+    viewport_u : vec3 = {viewport_width, 0, 0}
+    viewport_v : vec3 = {0, -viewport_height, 0}
+
+    // Calculate the horizontal and vertical delta vectors from pixel to pixel.
+    pixel_delta_u := viewport_u / f64(image_width)
+    pixel_delta_v := viewport_v / f64(image_height)
+    viewport_upper_left := center - {0, 0, focal_length} - viewport_u / 2 - viewport_v / 2
+
+    return Camera {
+        aspect_ratio = aspect_ratio,
+        image_width = image_width,
+        image_height = image_height,
+        center = center,
+
+        focal_length = focal_length,
+        viewport_height = viewport_height,
+
+        pixel_delta_u = pixel_delta_u,
+        pixel_delta_v = pixel_delta_v,
+
+        // Calculate the location of the upper left pixel.
+        pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v),
+    }
+}
+
+camera_reinitialize :: proc(cam: ^Camera) {
+    image_height := uint(f64(cam.image_width) / cam.aspect_ratio)
+    viewport_width := cam.viewport_height * (f64(cam.image_width) / f64(image_height))
+
+    viewport_u : vec3 = {viewport_width, 0, 0}
+    viewport_v : vec3 = {0, -cam.viewport_height, 0}
+
+    pixel_delta_u := viewport_u / f64(cam.image_width)
+    pixel_delta_v := viewport_v / f64(image_height)
+    viewport_upper_left := cam.center - {0, 0, cam.focal_length} - viewport_u / 2 - viewport_v / 2
+
+
+    cam.pixel_delta_u = pixel_delta_u
+    cam.pixel_delta_v = pixel_delta_v
+    cam.image_height = image_height
+    cam.pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v)
+}
+
+camera_render :: proc(camera: Camera, hittables : ^[dynamic]Hittable, renderer: ^SDL.Renderer) {
+    height := c.int(camera.image_height)
+    width := c.int(camera.image_width)
+
+    for y : c.int = 0; y < height; y += 1 {
+        // log.debug("Scan lines remaining: ", height - y)
+        for x : c.int = 0; x < width; x += 1 {
+            carl := f64(x) * camera.pixel_delta_u + f64(y) * camera.pixel_delta_v
+            pixel_center := camera.pixel00_loc + {carl.x, carl.y, 0}
+            ray_direction := pixel_center - camera.center
+            r := Ray {origin = camera.center, direction = ray_direction}
+
+            pixel_color := ray_color(r, hittables)
+
+            SDL.SetRenderDrawColor(renderer, pixel_color.r, pixel_color.g, pixel_color.b, pixel_color.a)
+            SDL.RenderDrawPoint(renderer, x, y)
+        }
+    }
+}
+
+ray_color :: proc(ray : Ray, hittables: ^[dynamic]Hittable) -> Color {
+    hit_rec : Hit
+
+    if (hit_many(hittables, ray, &hit_rec, { lower = 0, upper = math.INF_F64 })) {
+        return vec3_to_color(0.5 * (hit_rec.normal + 1))
+    }
+
+    unit_direction : vec3 = linalg.normalize(ray.direction)
+    a := 0.5 * (unit_direction.y + 1.0)
+    white : vec3 = { 1, 1, 1 }
+    blue : vec3 = { 0.5, 0.7, 1 }
+    col := (1.0 - a) * white + a * blue
+    return vec3_to_color(col)
+}
+
+// MAIN
+
 main :: proc() {
     when ODIN_DEBUG {
         // setup debug logging
@@ -154,29 +251,11 @@ main :: proc() {
 
     ASPECT_RATIO :: 16.0 / 9.0
     WINDOW_WIDTH :: 640
-    WINDOW_HEIGHT :: WINDOW_WIDTH / ASPECT_RATIO
 
-    VIEWPORT_HEIGHT :: 2.0
-    VIEWPORT_WIDTH :: VIEWPORT_HEIGHT * (WINDOW_WIDTH / WINDOW_HEIGHT)
-
-
-    // Camera
-    focal_length := 1.0
-    viewport_height := 2.0
-    viewport_width := viewport_height * (f64(WINDOW_WIDTH) / WINDOW_HEIGHT)
-    camera_center : vec3 = {0, 0, 0}
-
-    // Calculate the vectors across the horizontal and down the vertical viewport edges.
-    viewport_u : vec3 = {viewport_width, 0, 0}
-    viewport_v : vec3 = {0, -viewport_height, 0}
-
-    // Calculate the horizontal and vertical delta vectors from pixel to pixel.
-    pixel_delta_u := viewport_u / WINDOW_WIDTH
-    pixel_delta_v := viewport_v / WINDOW_HEIGHT
-
-    // Calculate the location of the upper left pixel.
-    viewport_upper_left := camera_center - vec3({0, 0, focal_length}) - viewport_u / 2 - viewport_v / 2
-    pixel00_loc := viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v)
+    camera := camera_create()
+    camera.aspect_ratio = ASPECT_RATIO
+    camera.image_width = WINDOW_WIDTH
+    camera_reinitialize(&camera)
 
 
     world : [dynamic]Hittable = {
@@ -195,7 +274,7 @@ main :: proc() {
         // log.error("SDL failed to initialize. SDL Error:", SDL.GetError())
         log.debug("SDL failed to initialize. SDL Error:", SDL.GetError())
     } else {
-        window = SDL.CreateWindow("SDL Tutorial", SDL.WINDOWPOS_UNDEFINED, SDL.WINDOWPOS_UNDEFINED, WINDOW_WIDTH, WINDOW_HEIGHT, {SDL.WindowFlag.SHOWN})
+        window = SDL.CreateWindow("SDL Tutorial", SDL.WINDOWPOS_UNDEFINED, SDL.WINDOWPOS_UNDEFINED, i32(camera.image_width), i32(camera.image_height), {SDL.WindowFlag.SHOWN})
 
         if window == nil {
             // log.error("SDL failed to create window. SDL Error:", SDL.GetError())
@@ -208,19 +287,7 @@ main :: proc() {
 
             event : ^SDL.Event
 
-            for y : c.int = 0; y < WINDOW_HEIGHT; y += 1 {
-                // log.debug("Scan lines remaining: ", WINDOW_HEIGHT - y)
-                for x : c.int = 0; x < WINDOW_WIDTH; x += 1 {
-                    pixel_center := pixel00_loc + (f64(x) * pixel_delta_u) + (f64(y) * pixel_delta_v)
-                    ray_direction := pixel_center - camera_center
-                    r := Ray {origin = camera_center, direction = ray_direction}
-
-                    pixel_color := ray_color(r, &world)
-
-                    SDL.SetRenderDrawColor(renderer, pixel_color.r, pixel_color.g, pixel_color.b, pixel_color.a)
-                    SDL.RenderDrawPoint(renderer, x, y)
-                }
-            }
+            camera_render(camera, &world, renderer)
 
             SDL.RenderPresent(renderer)
 
