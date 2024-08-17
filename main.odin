@@ -38,12 +38,11 @@ vec3_to_color :: proc(v : vec3) -> Color {
     return { u8(v.x * 255), u8(v.y * 255), u8(v.z * 255), 255 }
 }
 
-ray_color :: proc(ray : Ray) -> Color {
-    hit, is_hit := hit_sphere({ center = { 0, 0, -1 }, radius = 0.5 }, ray)
+ray_color :: proc(ray : Ray, hittables: ^[dynamic]Hittable) -> Color {
+    hit_rec : Hit
 
-    if (is_hit) {
-        n : vec3 = linalg.normalize(ray_at(ray, hit.t) - { 0,0,-1 }) + 1
-        return vec3_to_color(0.5 * n)
+    if (hit_many(hittables, ray, &hit_rec, 0, math.INF_F64)) {
+        return vec3_to_color(0.5 * (hit_rec.normal + 1))
     }
 
     unit_direction : vec3 = linalg.normalize(ray.direction)
@@ -65,8 +64,35 @@ Sphere :: struct {
     center: vec3,
     radius: f64,
 }
+Hittable :: union {Sphere}
 
-hit_sphere :: proc(sphere : Sphere, ray : Ray, t_max : f64 = 100, t_min : f64 = 0) -> (Hit, bool) {
+
+hit_many :: proc(hittables : ^[dynamic]Hittable, ray : Ray, hit_rec : ^Hit, t_min : f64, t_max : f64) -> bool {
+    temp_hit : Hit
+    hit_anything : bool
+    closest_so_far := t_max
+
+    hit_count : int
+    for hittable, i in hittables {
+        hit_next : bool
+        switch h in hittable {
+        case Sphere:
+       	    hit_next = hit_sphere(h, ray, &temp_hit, t_min, closest_so_far)
+        }
+
+
+        if hit_next {
+            hit_anything = true
+            hit_count += 1
+            closest_so_far = temp_hit.t
+            hit_rec^ = temp_hit
+        }
+    }
+
+    return hit_anything
+}
+
+hit_sphere :: proc(sphere : Sphere, ray : Ray, hit_rec : ^Hit, t_min : f64, t_max : f64) -> ( bool) {
     oc := sphere.center - ray.origin
     a := linalg.dot(ray.direction, ray.direction)
     c := linalg.dot(oc, oc) - sphere.radius * sphere.radius
@@ -74,7 +100,7 @@ hit_sphere :: proc(sphere : Sphere, ray : Ray, t_max : f64 = 100, t_min : f64 = 
     discriminant := b * b - a * c
 
     if discriminant < 0 {
-        return Hit {}, false
+        return false
     } else {
         sqrtd := math.sqrt(discriminant)
 
@@ -83,16 +109,17 @@ hit_sphere :: proc(sphere : Sphere, ray : Ray, t_max : f64 = 100, t_min : f64 = 
         if root <= t_min || t_max <= root {
             root = (b + sqrtd) / a
             if (root <= t_min || t_max <= root){
-                return Hit {}, false
+                return false
             }
         }
 
-        hit_point := ray_at(ray, root)
-        outward_normal :=  (hit_point - sphere.center) / sphere.radius
-        is_front_face := linalg.dot(ray.direction, outward_normal) < 0
-        normal := is_front_face ? outward_normal : -outward_normal
+        hit_rec.t = root
+        hit_rec.point= ray_at(ray, hit_rec.t)
+        outward_normal :=  (hit_rec.point - sphere.center) / sphere.radius
+        hit_rec.is_front_face = linalg.dot(ray.direction, outward_normal) < 0
+        hit_rec.normal = hit_rec.is_front_face ? outward_normal : -outward_normal
 
-        return Hit { point = hit_point, normal = normal, t = root, is_front_face = is_front_face }, true
+        return true
     }
 }
 
@@ -151,7 +178,11 @@ main :: proc() {
     pixel00_loc := viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v)
 
 
-
+    world : [dynamic]Hittable = {
+        Sphere{ center = { 0, 0, -1 }, radius = 0.5 },
+        Sphere{ center = { 0, -100.5, -1 }, radius = 100 },
+    }
+    defer delete(world)
 
     window : ^SDL.Window
     windowSurface : ^SDL.Surface
@@ -176,11 +207,6 @@ main :: proc() {
 
             event : ^SDL.Event
 
-            SDL.SetRenderDrawColor(renderer, 255, 0, 0, 255)
-
-            for column : c.int = 0; column < WINDOW_WIDTH; column += 1 {
-                SDL.RenderDrawPoint(renderer, column, column)
-            }
             for y : c.int = 0; y < WINDOW_HEIGHT; y += 1 {
                 // log.debug("Scan lines remaining: ", WINDOW_HEIGHT - y)
                 for x : c.int = 0; x < WINDOW_WIDTH; x += 1 {
@@ -188,7 +214,7 @@ main :: proc() {
                     ray_direction := pixel_center - camera_center
                     r := Ray {origin = camera_center, direction = ray_direction}
 
-                    pixel_color := ray_color(r)
+                    pixel_color := ray_color(r, &world)
 
                     SDL.SetRenderDrawColor(renderer, pixel_color.r, pixel_color.g, pixel_color.b, pixel_color.a)
                     SDL.RenderDrawPoint(renderer, x, y)
