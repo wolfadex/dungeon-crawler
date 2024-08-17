@@ -117,19 +117,20 @@ hit_sphere :: proc(sphere : Sphere, ray : Ray, hit_rec : ^Hit, t_interval : Inte
 
 Camera :: struct {
     // Set manually
-    aspect_ratio : f64,      // Ratio of image width over height
-    image_width : uint,      // Rendered image width in pixel count
-    center : vec3,           // Camera center
+    aspect_ratio : f64,        // Ratio of image width over height
+    image_width : uint,        // Rendered image width in pixel count
+    center : vec3,             // Camera center
     focal_length : f64,
     viewport_height : f64,
-    samples_per_pixel: uint, // Count of random samples for each pixel
+    samples_per_pixel: uint,   // Count of random samples for each pixel
 
     // Calculated
-    image_height : uint,     // Rendered image height
-    pixel_delta_u : vec3,    // Offset to pixel to the right
-    pixel_delta_v : vec3,    // Offset to pixel below
-    pixel00_loc : vec3,      // Location of pixel 0, 0
-    pixel_samples_scale : f64, //
+    image_height : uint,       // Rendered image height
+    pixel_delta_u : vec3,      // Offset to pixel to the right
+    pixel_delta_v : vec3,      // Offset to pixel below
+    pixel00_loc : vec3,        // Location of pixel 0, 0
+    pixel_samples_scale : f64, // Count of random samples for each pixel
+    max_depth  : uint,         // Maximum number of ray bounces into scene
 }
 
 camera_create :: proc() -> Camera {
@@ -171,6 +172,7 @@ camera_create :: proc() -> Camera {
 
         samples_per_pixel = samples_per_pixel,
         pixel_samples_scale = 1.0 / f64(samples_per_pixel),
+        max_depth = 10,
     }
 }
 
@@ -194,12 +196,12 @@ camera_reinitialize :: proc(cam: ^Camera) {
 }
 
 
-camera_to_ray :: proc(camera: Camera, i: int, j: int) -> Ray {
+camera_to_ray :: proc(camera: Camera, x: int, y: int) -> Ray {
     // Construct a camera ray originating from the origin and directed
-    // at randomly sampled point around the pixel location i, j.
+    // at randomly sampled point around the pixel location x, y.
 
     offset := sample_square()
-    pixel_sample := camera.pixel00_loc + ((f64(i) + offset.x) * camera.pixel_delta_u) + ((f64(j) + offset.y) * camera.pixel_delta_v)
+    pixel_sample := camera.pixel00_loc + ((f64(x) + offset.x) * camera.pixel_delta_u) + ((f64(y) + offset.y) * camera.pixel_delta_v)
 
     return { origin = camera.center, direction = pixel_sample - camera.center }
 }
@@ -220,7 +222,7 @@ camera_render :: proc(camera: Camera, hittables : ^[dynamic]Hittable, renderer: 
 
             for sample : uint = 0; sample < camera.samples_per_pixel; sample += 1 {
                 r := camera_to_ray(camera, int(x), int(y))
-                pixel_color += ray_color(r, hittables)
+                pixel_color += ray_color(r, camera.max_depth, hittables)
             }
 
             pixel_color *= camera.pixel_samples_scale
@@ -233,12 +235,17 @@ camera_render :: proc(camera: Camera, hittables : ^[dynamic]Hittable, renderer: 
     }
 }
 
-ray_color :: proc(ray : Ray, hittables: ^[dynamic]Hittable) -> vec3 {
+ray_color :: proc(ray : Ray, depth: uint, hittables: ^[dynamic]Hittable) -> vec3 {
+    // If we've exceeded the ray bounce limit, no more light is gathered.
+    if (depth <= 0) {
+        return {0,0,0}
+    }
+
     hit_rec : Hit
 
-    if (hit_many(hittables, ray, &hit_rec, { lower = 0, upper = math.INF_F64 })) {
+    if (hit_many(hittables, ray, &hit_rec, { lower = 0.001, upper = math.INF_F64 })) {
         dir := rand_on_hemisphere(hit_rec.normal)
-        return 0.5 * ray_color({ hit_rec.point, dir }, hittables)
+        return 0.5 * ray_color({ hit_rec.point, dir }, depth - 1, hittables)
     }
 
     unit_direction : vec3 = linalg.normalize(ray.direction)
@@ -285,6 +292,7 @@ main :: proc() {
     camera := camera_create()
     camera.aspect_ratio = ASPECT_RATIO
     camera.image_width = WINDOW_WIDTH
+    camera.max_depth = 50
     camera_reinitialize(&camera)
 
 
