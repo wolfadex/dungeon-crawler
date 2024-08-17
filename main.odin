@@ -30,20 +30,6 @@ WHITE :: Color { 255, 255, 255, 255 }
 BLUE :: Color { 127, 178, 255, 255 }
 RED :: Color { 255, 0, 0, 255 }
 
-hit_sphere :: proc(center: vec3, radius: f64, ray : Ray) -> f64 {
-    oc := center - ray.origin
-    a := linalg.dot(ray.direction, ray.direction)
-    b := -2.0 * linalg.dot(ray.direction, oc)
-    c := linalg.dot(oc, oc) - radius * radius
-    discriminant := b * b - 4 * a * c
-
-    if discriminant < 0 {
-        return -1.0;
-    } else {
-        return (-b - math.sqrt(discriminant) ) / (2.0 * a);
-    }
-}
-
 ray_at :: proc(ray : Ray, t : f64) -> vec3 {
     return ray.origin + t * ray.direction
 }
@@ -66,6 +52,20 @@ ray_color :: proc(ray : Ray) -> Color {
     blue : vec3 = { 0.5, 0.7, 1 }
     col := (1.0 - a) * white + a * blue
     return vec3_to_color(col)
+}
+
+hit_sphere :: proc(center: vec3, radius: f64, ray : Ray) -> f64 {
+    oc := center - ray.origin
+    a := linalg.dot(ray.direction, ray.direction)
+    c := linalg.dot(oc, oc) - radius * radius
+    b := linalg.dot(ray.direction, oc);
+    discriminant := b * b - a * c;
+
+    if discriminant < 0 {
+        return -1.0;
+    } else {
+        return (b - math.sqrt(discriminant)) / a
+    }
 }
 
 main :: proc() {
