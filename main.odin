@@ -58,6 +58,7 @@ Hit :: struct {
     point : vec3,
     normal : vec3,
     t: f64,
+    is_front_face: bool,
 }
 
 Sphere :: struct {
@@ -80,15 +81,18 @@ hit_sphere :: proc(sphere : Sphere, ray : Ray, t_max : f64 = 100, t_min : f64 = 
         // Find the nearest root that lies in the acceptable range.
         root := (b - sqrtd) / a
         if root <= t_min || t_max <= root {
-            root = (b + sqrtd) / a;
+            root = (b + sqrtd) / a
             if (root <= t_min || t_max <= root){
                 return Hit {}, false
             }
         }
 
         hit_point := ray_at(ray, root)
+        outward_normal :=  (hit_point - sphere.center) / sphere.radius
+        is_front_face := linalg.dot(ray.direction, outward_normal) < 0
+        normal := is_front_face ? outward_normal : -outward_normal
 
-        return Hit { point = hit_point, normal = (hit_point - sphere.center) / sphere.radius, t = root }, true
+        return Hit { point = hit_point, normal = normal, t = root, is_front_face = is_front_face }, true
     }
 }
 
