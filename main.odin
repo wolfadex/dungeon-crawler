@@ -245,6 +245,7 @@ ray_color :: proc(ray : Ray, depth: uint, hittables: ^[dynamic]Hittable) -> vec3
 
     if (hit_many(hittables, ray, &hit_rec, { lower = 0.001, upper = math.INF_F64 })) {
         dir := rand_on_hemisphere(hit_rec.normal)
+        dir = hit_rec.normal + rand_unit_vec3();
         return 0.5 * ray_color({ hit_rec.point, dir }, depth - 1, hittables)
     }
 
