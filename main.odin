@@ -41,7 +41,7 @@ vec3_to_color :: proc(v : vec3) -> Color {
 ray_color :: proc(ray : Ray, hittables: ^[dynamic]Hittable) -> Color {
     hit_rec : Hit
 
-    if (hit_many(hittables, ray, &hit_rec, 0, math.INF_F64)) {
+    if (hit_many(hittables, ray, &hit_rec, { lower = 0, upper = math.INF_F64 })) {
         return vec3_to_color(0.5 * (hit_rec.normal + 1))
     }
 
@@ -67,17 +67,17 @@ Sphere :: struct {
 Hittable :: union {Sphere}
 
 
-hit_many :: proc(hittables : ^[dynamic]Hittable, ray : Ray, hit_rec : ^Hit, t_min : f64, t_max : f64) -> bool {
+hit_many :: proc(hittables : ^[dynamic]Hittable, ray : Ray, hit_rec : ^Hit, t_interval : Interval) -> bool {
     temp_hit : Hit
     hit_anything : bool
-    closest_so_far := t_max
+    closest_so_far := t_interval.upper
 
     hit_count : int
     for hittable, i in hittables {
         hit_next : bool
         switch h in hittable {
         case Sphere:
-       	    hit_next = hit_sphere(h, ray, &temp_hit, t_min, closest_so_far)
+       	    hit_next = hit_sphere(h, ray, &temp_hit, { lower = t_interval.lower, upper = closest_so_far })
         }
 
 
@@ -92,7 +92,7 @@ hit_many :: proc(hittables : ^[dynamic]Hittable, ray : Ray, hit_rec : ^Hit, t_mi
     return hit_anything
 }
 
-hit_sphere :: proc(sphere : Sphere, ray : Ray, hit_rec : ^Hit, t_min : f64, t_max : f64) -> ( bool) {
+hit_sphere :: proc(sphere : Sphere, ray : Ray, hit_rec : ^Hit, t_interval : Interval) -> ( bool) {
     oc := sphere.center - ray.origin
     a := linalg.dot(ray.direction, ray.direction)
     c := linalg.dot(oc, oc) - sphere.radius * sphere.radius
@@ -106,9 +106,10 @@ hit_sphere :: proc(sphere : Sphere, ray : Ray, hit_rec : ^Hit, t_min : f64, t_ma
 
         // Find the nearest root that lies in the acceptable range.
         root := (b - sqrtd) / a
-        if root <= t_min || t_max <= root {
+        // if root <= t_interval.lower || t_interval.upper <= root {
+        if !interval_surrounds(t_interval, root) {
             root = (b + sqrtd) / a
-            if (root <= t_min || t_max <= root){
+            if !interval_surrounds(t_interval, root) {
                 return false
             }
         }
@@ -284,4 +285,25 @@ main :: proc() {
     // state.texture_patterns = rl.LoadTexture("resources/patternPack_tilesheet@2.png")
     // defer rl.UnloadTexture(state.texture_patterns)
 
+}
+
+
+Interval :: struct {
+    lower: f64,
+    upper: f64,
+}
+
+INTERVAL_EMPTY :: Interval { lower = math.INF_F64, upper = -math.INF_F64 }
+INTERVAL_UNIVERSE :: Interval { lower = -math.INF_F64, upper = math.INF_F64 }
+
+interval_size :: proc(interval: Interval) -> f64 {
+    return interval.upper - interval.lower
+}
+
+interval_contains :: proc(interval : Interval, x: f64) -> bool {
+    return interval.lower <= x && x <= interval.upper
+}
+
+interval_surrounds :: proc(interval : Interval, x: f64) -> bool {
+    return interval.lower < x && x < interval.upper
 }
