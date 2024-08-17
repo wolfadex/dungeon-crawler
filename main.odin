@@ -5,6 +5,7 @@ import "core:log"
 import "core:mem"
 import "core:math"
 import "core:math/linalg"
+import "core:math/rand"
 import "core:os"
 import SDL "vendor:sdl2"
 import SDL_Image "vendor:sdl2/image"
@@ -116,17 +117,19 @@ hit_sphere :: proc(sphere : Sphere, ray : Ray, hit_rec : ^Hit, t_interval : Inte
 
 Camera :: struct {
     // Set manually
-    aspect_ratio : f64,    // Ratio of image width over height
-    image_width : uint,    // Rendered image width in pixel count
-    center : vec3,         // Camera center
+    aspect_ratio : f64,      // Ratio of image width over height
+    image_width : uint,      // Rendered image width in pixel count
+    center : vec3,           // Camera center
     focal_length : f64,
     viewport_height : f64,
+    samples_per_pixel: uint, // Count of random samples for each pixel
 
     // Calculated
-    image_height : uint,   // Rendered image height
-    pixel_delta_u : vec3,  // Offset to pixel to the right
-    pixel_delta_v : vec3,  // Offset to pixel below
-    pixel00_loc : vec3,    // Location of pixel 0, 0
+    image_height : uint,     // Rendered image height
+    pixel_delta_u : vec3,    // Offset to pixel to the right
+    pixel_delta_v : vec3,    // Offset to pixel below
+    pixel00_loc : vec3,      // Location of pixel 0, 0
+    pixel_samples_scale : f64, //
 }
 
 camera_create :: proc() -> Camera {
@@ -149,6 +152,8 @@ camera_create :: proc() -> Camera {
     pixel_delta_v := viewport_v / f64(image_height)
     viewport_upper_left := center - {0, 0, focal_length} - viewport_u / 2 - viewport_v / 2
 
+    samples_per_pixel : uint = 10
+
     return Camera {
         aspect_ratio = aspect_ratio,
         image_width = image_width,
@@ -163,6 +168,9 @@ camera_create :: proc() -> Camera {
 
         // Calculate the location of the upper left pixel.
         pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v),
+
+        samples_per_pixel = samples_per_pixel,
+        pixel_samples_scale = 1.0 / f64(samples_per_pixel),
     }
 }
 
@@ -182,6 +190,23 @@ camera_reinitialize :: proc(cam: ^Camera) {
     cam.pixel_delta_v = pixel_delta_v
     cam.image_height = image_height
     cam.pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v)
+    cam.pixel_samples_scale = 1.0 / f64(cam.samples_per_pixel)
+}
+
+
+camera_to_ray :: proc(camera: Camera, i: int, j: int) -> Ray {
+    // Construct a camera ray originating from the origin and directed
+    // at randomly sampled point around the pixel location i, j.
+
+    offset := sample_square()
+    pixel_sample := camera.pixel00_loc + ((f64(i) + offset.x) * camera.pixel_delta_u) + ((f64(j) + offset.y) * camera.pixel_delta_v)
+
+    return { origin = camera.center, direction = pixel_sample - camera.center }
+}
+
+sample_square :: proc() -> vec2 {
+    // Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
+    return { rand.float64() - 0.5, rand.float64() - 0.5 }
 }
 
 camera_render :: proc(camera: Camera, hittables : ^[dynamic]Hittable, renderer: ^SDL.Renderer) {
@@ -191,24 +216,28 @@ camera_render :: proc(camera: Camera, hittables : ^[dynamic]Hittable, renderer: 
     for y : c.int = 0; y < height; y += 1 {
         // log.debug("Scan lines remaining: ", height - y)
         for x : c.int = 0; x < width; x += 1 {
-            carl := f64(x) * camera.pixel_delta_u + f64(y) * camera.pixel_delta_v
-            pixel_center := camera.pixel00_loc + {carl.x, carl.y, 0}
-            ray_direction := pixel_center - camera.center
-            r := Ray {origin = camera.center, direction = ray_direction}
+            pixel_color : vec3 = {0, 0, 0}
 
-            pixel_color := ray_color(r, hittables)
+            for sample : uint = 0; sample < camera.samples_per_pixel; sample += 1 {
+                r := camera_to_ray(camera, int(x), int(y))
+                pixel_color += ray_color(r, hittables)
+            }
 
-            SDL.SetRenderDrawColor(renderer, pixel_color.r, pixel_color.g, pixel_color.b, pixel_color.a)
+            pixel_color *= camera.pixel_samples_scale
+
+            final_color := vec3_to_color(pixel_color)
+
+            SDL.SetRenderDrawColor(renderer, final_color.r, final_color.g, final_color.b, final_color.a)
             SDL.RenderDrawPoint(renderer, x, y)
         }
     }
 }
 
-ray_color :: proc(ray : Ray, hittables: ^[dynamic]Hittable) -> Color {
+ray_color :: proc(ray : Ray, hittables: ^[dynamic]Hittable) -> vec3 {
     hit_rec : Hit
 
     if (hit_many(hittables, ray, &hit_rec, { lower = 0, upper = math.INF_F64 })) {
-        return vec3_to_color(0.5 * (hit_rec.normal + 1))
+        return (0.5 * (hit_rec.normal + 1))
     }
 
     unit_direction : vec3 = linalg.normalize(ray.direction)
@@ -216,7 +245,7 @@ ray_color :: proc(ray : Ray, hittables: ^[dynamic]Hittable) -> Color {
     white : vec3 = { 1, 1, 1 }
     blue : vec3 = { 0.5, 0.7, 1 }
     col := (1.0 - a) * white + a * blue
-    return vec3_to_color(col)
+    return (col)
 }
 
 // MAIN
