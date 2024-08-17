@@ -39,10 +39,10 @@ vec3_to_color :: proc(v : vec3) -> Color {
 }
 
 ray_color :: proc(ray : Ray) -> Color {
-    t := hit_sphere({ 0, 0, -1 }, 0.5, ray);
+    hit, is_hit := hit_sphere({ center = { 0, 0, -1 }, radius = 0.5 }, ray)
 
-    if (t > 0.0) {
-        n : vec3 = linalg.normalize(ray_at(ray, t) - { 0,0,-1 }) + 1;
+    if (is_hit) {
+        n : vec3 = linalg.normalize(ray_at(ray, hit.t) - { 0,0,-1 }) + 1
         return vec3_to_color(0.5 * n)
     }
 
@@ -54,17 +54,41 @@ ray_color :: proc(ray : Ray) -> Color {
     return vec3_to_color(col)
 }
 
-hit_sphere :: proc(center: vec3, radius: f64, ray : Ray) -> f64 {
-    oc := center - ray.origin
+Hit :: struct {
+    point : vec3,
+    normal : vec3,
+    t: f64,
+}
+
+Sphere :: struct {
+    center: vec3,
+    radius: f64,
+}
+
+hit_sphere :: proc(sphere : Sphere, ray : Ray, t_max : f64 = 100, t_min : f64 = 0) -> (Hit, bool) {
+    oc := sphere.center - ray.origin
     a := linalg.dot(ray.direction, ray.direction)
-    c := linalg.dot(oc, oc) - radius * radius
-    b := linalg.dot(ray.direction, oc);
-    discriminant := b * b - a * c;
+    c := linalg.dot(oc, oc) - sphere.radius * sphere.radius
+    b := linalg.dot(ray.direction, oc)
+    discriminant := b * b - a * c
 
     if discriminant < 0 {
-        return -1.0;
+        return Hit {}, false
     } else {
-        return (b - math.sqrt(discriminant)) / a
+        sqrtd := math.sqrt(discriminant)
+
+        // Find the nearest root that lies in the acceptable range.
+        root := (b - sqrtd) / a
+        if root <= t_min || t_max <= root {
+            root = (b + sqrtd) / a;
+            if (root <= t_min || t_max <= root){
+                return Hit {}, false
+            }
+        }
+
+        hit_point := ray_at(ray, root)
+
+        return Hit { point = hit_point, normal = (hit_point - sphere.center) / sphere.radius, t = root }, true
     }
 }
 
@@ -96,7 +120,7 @@ main :: proc() {
         defer reset_tracking_allocator(&tracking_allocator)
     }
 
-    ASPECT_RATIO :: 16.0 / 9.0;
+    ASPECT_RATIO :: 16.0 / 9.0
     WINDOW_WIDTH :: 640
     WINDOW_HEIGHT :: WINDOW_WIDTH / ASPECT_RATIO
 
@@ -143,12 +167,12 @@ main :: proc() {
         } else {
             renderer := SDL.CreateRenderer(window, -1, {SDL.RendererFlag.SOFTWARE})
             defer SDL.DestroyRenderer(renderer)
-            SDL.SetRenderDrawColor(renderer, 0, 0, 0, 0);
-            SDL.RenderClear(renderer);
+            SDL.SetRenderDrawColor(renderer, 0, 0, 0, 0)
+            SDL.RenderClear(renderer)
 
             event : ^SDL.Event
 
-            SDL.SetRenderDrawColor(renderer, 255, 0, 0, 255);
+            SDL.SetRenderDrawColor(renderer, 255, 0, 0, 255)
 
             for column : c.int = 0; column < WINDOW_WIDTH; column += 1 {
                 SDL.RenderDrawPoint(renderer, column, column)
@@ -160,14 +184,14 @@ main :: proc() {
                     ray_direction := pixel_center - camera_center
                     r := Ray {origin = camera_center, direction = ray_direction}
 
-                    pixel_color := ray_color(r);
+                    pixel_color := ray_color(r)
 
                     SDL.SetRenderDrawColor(renderer, pixel_color.r, pixel_color.g, pixel_color.b, pixel_color.a)
                     SDL.RenderDrawPoint(renderer, x, y)
                 }
             }
 
-            SDL.RenderPresent(renderer);
+            SDL.RenderPresent(renderer)
 
             game_loop: for {
                 for event: SDL.Event; SDL.PollEvent(&event); {
