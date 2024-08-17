@@ -237,7 +237,8 @@ ray_color :: proc(ray : Ray, hittables: ^[dynamic]Hittable) -> vec3 {
     hit_rec : Hit
 
     if (hit_many(hittables, ray, &hit_rec, { lower = 0, upper = math.INF_F64 })) {
-        return (0.5 * (hit_rec.normal + 1))
+        dir := rand_on_hemisphere(hit_rec.normal)
+        return 0.5 * ray_color({ hit_rec.point, dir }, hittables)
     }
 
     unit_direction : vec3 = linalg.normalize(ray.direction)
@@ -402,4 +403,30 @@ interval_contains :: proc(interval : Interval, x: f64) -> bool {
 
 interval_surrounds :: proc(interval : Interval, x: f64) -> bool {
     return interval.lower < x && x < interval.upper
+}
+
+rand_vec3 :: proc(min: f64, max: f64) -> vec3 {
+    return { rand.float64_range(min,max), rand.float64_range(min,max), rand.float64_range(min,max) }
+}
+
+rand_unit_vec3 :: proc() -> vec3 {
+    return linalg.normalize(rand_in_unit_sphere())
+}
+
+rand_in_unit_sphere :: proc() -> vec3 {
+    for {
+        p := rand_vec3(-1,1)
+        if (linalg.dot(p, p) < 1) {
+            return p
+        }
+    }
+}
+
+rand_on_hemisphere :: proc(normal: vec3) -> vec3{
+    on_unit_sphere := rand_in_unit_sphere()
+    if linalg.dot(on_unit_sphere, normal) > 0.0 { // In the same hemisphere as the normal
+        return on_unit_sphere
+    } else {
+        return -on_unit_sphere
+    }
 }
