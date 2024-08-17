@@ -26,30 +26,46 @@ Ray :: struct {
     direction: vec3,
 }
 
-// WHITE :: Color { 255, 255, 255, 255 }
-// BLUE :: Color { 127, 178.2, 255, 255 }
+WHITE :: Color { 255, 255, 255, 255 }
+BLUE :: Color { 127, 178, 255, 255 }
 RED :: Color { 255, 0, 0, 255 }
 
-hit_sphere :: proc(center: vec3, radius: f64, ray : Ray) -> bool {
+hit_sphere :: proc(center: vec3, radius: f64, ray : Ray) -> f64 {
     oc := center - ray.origin
     a := linalg.dot(ray.direction, ray.direction)
     b := -2.0 * linalg.dot(ray.direction, oc)
     c := linalg.dot(oc, oc) - radius * radius
     discriminant := b * b - 4 * a * c
-    return discriminant >= 0
+
+    if discriminant < 0 {
+        return -1.0;
+    } else {
+        return (-b - math.sqrt(discriminant) ) / (2.0 * a);
+    }
+}
+
+ray_at :: proc(ray : Ray, t : f64) -> vec3 {
+    return ray.origin + t * ray.direction
+}
+
+vec3_to_color :: proc(v : vec3) -> Color {
+    return { u8(v.x * 255), u8(v.y * 255), u8(v.z * 255), 255 }
 }
 
 ray_color :: proc(ray : Ray) -> Color {
-    if hit_sphere({ 0, 0, -1 }, 0.5, ray) {
-        return RED
+    t := hit_sphere({ 0, 0, -1 }, 0.5, ray);
+
+    if (t > 0.0) {
+        n : vec3 = linalg.normalize(ray_at(ray, t) - { 0,0,-1 }) + 1;
+        return vec3_to_color(0.5 * n)
     }
 
     unit_direction : vec3 = linalg.normalize(ray.direction)
     a := 0.5 * (unit_direction.y + 1.0)
-    white : vec3 = { 255, 255, 255 }
-    blue : vec3 = { 127, 178.2, 255 }
+    white : vec3 = { 1, 1, 1 }
+    blue : vec3 = { 0.5, 0.7, 1 }
     col := (1.0 - a) * white + a * blue
-    return { u8(col.r), u8(col.g), u8(col.b), 255}
+    return vec3_to_color(col)
 }
 
 main :: proc() {
