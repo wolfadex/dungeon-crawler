@@ -118,23 +118,24 @@ hit_sphere :: proc(sphere : Sphere, ray : Ray, hit_rec : ^Hit, t_interval : Inte
 
 // MATERIAL
 
-MaterialType :: enum {
-    Lambertian,
-    Metal,
-}
-
-Material :: struct {
+Material_Lambertian :: struct {
     albedo: vec3,
-    material_type: MaterialType,
 }
 
-scatter_metal :: proc(ray_in: Ray, hit_rec: ^Hit) -> (attenuation: vec3, scattered: Ray, ok: bool) {
+Material_Metal :: struct {
+    albedo: vec3,
+    fuzz: f64,
+}
+
+Material :: union {Material_Lambertian, Material_Metal}
+
+scatter_metal :: proc(ray_in: Ray, hit_rec: ^Hit, material: Material_Metal) -> (attenuation: vec3, scattered: Ray, ok: bool) {
     reflected := linalg.reflect(hit_rec.point, hit_rec.normal)
 
-    return hit_rec.material.albedo, { origin = hit_rec.point, direction = reflected }, true
+    return material.albedo, { origin = hit_rec.point, direction = reflected }, true
 }
 
-scatter_lambertian :: proc(ray_in: Ray, hit_rec: ^Hit) -> (attenuation: vec3, scattered: Ray, ok: bool) {
+scatter_lambertian :: proc(ray_in: Ray, hit_rec: ^Hit, material: Material_Lambertian) -> (attenuation: vec3, scattered: Ray, ok: bool) {
     scatter_direction := hit_rec.normal + rand_unit_vec3()
 
     // Catch degenerate scatter direction
@@ -142,7 +143,7 @@ scatter_lambertian :: proc(ray_in: Ray, hit_rec: ^Hit) -> (attenuation: vec3, sc
         scatter_direction = hit_rec.normal
     }
 
-    return hit_rec.material.albedo, { origin = hit_rec.point, direction = scatter_direction }, true
+    return material.albedo, { origin = hit_rec.point, direction = scatter_direction }, true
 }
 
 // CAMERA
@@ -286,11 +287,11 @@ ray_color :: proc(ray : Ray, depth: uint, hittables: ^[dynamic]Hittable) -> vec3
         scattered : Ray
         ok : bool
 
-        switch hit_rec.material.material_type {
-        case MaterialType.Lambertian:
-            attenuation, scattered, ok = scatter_lambertian(ray, &hit_rec)
-        case MaterialType.Metal:
-            attenuation, scattered, ok = scatter_metal(ray, &hit_rec)
+        switch material in hit_rec.material {
+        case Material_Lambertian:
+            attenuation, scattered, ok = scatter_lambertian(ray, &hit_rec, material)
+        case Material_Metal:
+            attenuation, scattered, ok = scatter_metal(ray, &hit_rec, material)
         }
 
         if  ok {
@@ -355,10 +356,10 @@ main :: proc() {
     camera.max_depth = 50
     camera_reinitialize(&camera)
 
-    material_ground : Material = { material_type = .Lambertian, albedo = {0.8, 0.8, 0.0} }
-    material_center : Material = { material_type = .Lambertian, albedo = {0.1, 0.2, 0.5} }
-    material_left   : Material = { material_type = .Metal, albedo = {0.8, 0.8, 0.8} }
-    material_right  : Material = { material_type = .Metal, albedo = {0.8, 0.6, 0.2} }
+    material_ground : Material = Material_Lambertian{ albedo = {0.8, 0.8, 0.0} }
+    material_center : Material = Material_Lambertian{ albedo = {0.1, 0.2, 0.5} }
+    material_left   : Material = Material_Metal{ albedo = {0.8, 0.8, 0.8}, fuzz = 0.3 }
+    material_right  : Material = Material_Metal{ albedo = {0.8, 0.6, 0.2}, fuzz = 1.0 }
 
     world : [dynamic]Hittable = {
         Sphere{ center = {  0.0, -100.5, -1.0} , radius = 100.0, material = &material_ground },
