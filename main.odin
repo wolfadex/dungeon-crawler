@@ -130,9 +130,14 @@ Material_Metal :: struct {
 Material :: union {Material_Lambertian, Material_Metal}
 
 scatter_metal :: proc(ray_in: Ray, hit_rec: ^Hit, material: Material_Metal) -> (attenuation: vec3, scattered: Ray, ok: bool) {
-    reflected := linalg.reflect(hit_rec.point, hit_rec.normal)
+    reflected := linalg.reflect(ray_in.direction, hit_rec.normal)
+    reflected = linalg.normalize(reflected) + (material.fuzz * rand_unit_vec3())
 
-    return material.albedo, { origin = hit_rec.point, direction = reflected }, true
+    attenuation = material.albedo
+    scattered = { origin = hit_rec.point, direction = reflected }
+    ok = linalg.dot(scattered.direction, hit_rec.normal) > 0
+
+    return attenuation, scattered, ok
 }
 
 scatter_lambertian :: proc(ray_in: Ray, hit_rec: ^Hit, material: Material_Lambertian) -> (attenuation: vec3, scattered: Ray, ok: bool) {
@@ -143,7 +148,11 @@ scatter_lambertian :: proc(ray_in: Ray, hit_rec: ^Hit, material: Material_Lamber
         scatter_direction = hit_rec.normal
     }
 
-    return material.albedo, { origin = hit_rec.point, direction = scatter_direction }, true
+    attenuation = material.albedo
+    scattered = { origin = hit_rec.point, direction = scatter_direction }
+    ok = true
+
+    return attenuation, scattered, ok
 }
 
 // CAMERA
