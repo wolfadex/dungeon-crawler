@@ -227,6 +227,11 @@ camera_render :: proc(camera: Camera, hittables : ^[dynamic]Hittable, renderer: 
 
             pixel_color *= camera.pixel_samples_scale
 
+            for col, i in pixel_color {
+                pixel_color[i] = math.clamp(linear_to_gamma(col), 0.000, 0.999)
+
+            }
+
             final_color := vec3_to_color(pixel_color)
 
             SDL.SetRenderDrawColor(renderer, final_color.r, final_color.g, final_color.b, final_color.a)
@@ -255,6 +260,14 @@ ray_color :: proc(ray : Ray, depth: uint, hittables: ^[dynamic]Hittable) -> vec3
     blue : vec3 = { 0.5, 0.7, 1 }
     col := (1.0 - a) * white + a * blue
     return (col)
+}
+
+linear_to_gamma :: proc(linear_component: f64) -> f64 {
+    if (linear_component > 0) {
+        return math.sqrt(linear_component)
+    }
+
+    return 0;
 }
 
 // MAIN
