@@ -47,11 +47,13 @@ Hit :: struct {
     normal : vec3,
     t: f64,
     is_front_face: bool,
+    material: ^Material,
 }
 
 Sphere :: struct {
     center: vec3,
     radius: f64,
+    material: ^Material,
 }
 Hittable :: union {Sphere}
 
@@ -108,9 +110,39 @@ hit_sphere :: proc(sphere : Sphere, ray : Ray, hit_rec : ^Hit, t_interval : Inte
         outward_normal :=  (hit_rec.point - sphere.center) / sphere.radius
         hit_rec.is_front_face = linalg.dot(ray.direction, outward_normal) < 0
         hit_rec.normal = hit_rec.is_front_face ? outward_normal : -outward_normal
+        hit_rec.material = sphere.material
 
         return true
     }
+}
+
+// MATERIAL
+
+MaterialType :: enum {
+    Lambertian,
+    Metal,
+}
+
+Material :: struct {
+    albedo: vec3,
+    material_type: MaterialType,
+}
+
+scatter_metal :: proc(ray_in: Ray, hit_rec: ^Hit) -> (attenuation: vec3, scattered: Ray, ok: bool) {
+    reflected := linalg.reflect(hit_rec.point, hit_rec.normal)
+
+    return hit_rec.material.albedo, { origin = hit_rec.point, direction = reflected }, true
+}
+
+scatter_lambertian :: proc(ray_in: Ray, hit_rec: ^Hit) -> (attenuation: vec3, scattered: Ray, ok: bool) {
+    scatter_direction := hit_rec.normal + rand_unit_vec3()
+
+    // Catch degenerate scatter direction
+    if vec3_near_zero(scatter_direction) {
+        scatter_direction = hit_rec.normal
+    }
+
+    return hit_rec.material.albedo, { origin = hit_rec.point, direction = scatter_direction }, true
 }
 
 // CAMERA
@@ -215,9 +247,10 @@ camera_render :: proc(camera: Camera, hittables : ^[dynamic]Hittable, renderer: 
     height := c.int(camera.image_height)
     width := c.int(camera.image_width)
 
-    for y : c.int = 0; y < height; y += 1 {
+    for x : c.int = 0; x < width; x += 1 {
         // log.debug("Scan lines remaining: ", height - y)
-        for x : c.int = 0; x < width; x += 1 {
+        for y : c.int = 0; y < height; y += 1 {
+
             pixel_color : vec3 = {0, 0, 0}
 
             for sample : uint = 0; sample < camera.samples_per_pixel; sample += 1 {
@@ -249,9 +282,22 @@ ray_color :: proc(ray : Ray, depth: uint, hittables: ^[dynamic]Hittable) -> vec3
     hit_rec : Hit
 
     if (hit_many(hittables, ray, &hit_rec, { lower = 0.001, upper = math.INF_F64 })) {
-        dir := rand_on_hemisphere(hit_rec.normal)
-        dir = hit_rec.normal + rand_unit_vec3();
-        return 0.5 * ray_color({ hit_rec.point, dir }, depth - 1, hittables)
+        attenuation : vec3
+        scattered : Ray
+        ok : bool
+
+        switch hit_rec.material.material_type {
+        case MaterialType.Lambertian:
+            attenuation, scattered, ok = scatter_lambertian(ray, &hit_rec)
+        case MaterialType.Metal:
+            attenuation, scattered, ok = scatter_metal(ray, &hit_rec)
+        }
+
+        if  ok {
+            return attenuation * ray_color(scattered, depth - 1, hittables)
+        }
+
+        return {0,0,0}
     }
 
     unit_direction : vec3 = linalg.normalize(ray.direction)
@@ -267,7 +313,7 @@ linear_to_gamma :: proc(linear_component: f64) -> f64 {
         return math.sqrt(linear_component)
     }
 
-    return 0;
+    return 0
 }
 
 // MAIN
@@ -309,10 +355,16 @@ main :: proc() {
     camera.max_depth = 50
     camera_reinitialize(&camera)
 
+    material_ground : Material = { material_type = .Lambertian, albedo = {0.8, 0.8, 0.0} }
+    material_center : Material = { material_type = .Lambertian, albedo = {0.1, 0.2, 0.5} }
+    material_left   : Material = { material_type = .Metal, albedo = {0.8, 0.8, 0.8} }
+    material_right  : Material = { material_type = .Metal, albedo = {0.8, 0.6, 0.2} }
 
     world : [dynamic]Hittable = {
-        Sphere{ center = { 0, 0, -1 }, radius = 0.5 },
-        Sphere{ center = { 0, -100.5, -1 }, radius = 100 },
+        Sphere{ center = {  0.0, -100.5, -1.0} , radius = 100.0, material = &material_ground },
+        Sphere{ center = {  0.0,    0.0, -1.2} , radius =   0.5, material = &material_center },
+        Sphere{ center = { -1.0,    0.0, -1.0} , radius =   0.5, material = &material_left },
+        Sphere{ center = {  1.0,    0.0, -1.0} , radius =   0.5, material = &material_right },
     }
     defer delete(world)
 
@@ -326,7 +378,7 @@ main :: proc() {
         // log.error("SDL failed to initialize. SDL Error:", SDL.GetError())
         log.debug("SDL failed to initialize. SDL Error:", SDL.GetError())
     } else {
-        window = SDL.CreateWindow("SDL Tutorial", SDL.WINDOWPOS_UNDEFINED, SDL.WINDOWPOS_UNDEFINED, i32(camera.image_width), i32(camera.image_height), {SDL.WindowFlag.SHOWN})
+        window = SDL.CreateWindow("SDL Tutorial", SDL.WINDOWPOS_UNDEFINED, SDL.WINDOWPOS_UNDEFINED, i32(camera.image_width), i32(camera.image_height), {SDL.WindowFlag.SHOWN, SDL.WindowFlag.RESIZABLE})
 
         if window == nil {
             // log.error("SDL failed to create window. SDL Error:", SDL.GetError())
@@ -451,4 +503,10 @@ rand_on_hemisphere :: proc(normal: vec3) -> vec3{
     } else {
         return -on_unit_sphere
     }
+}
+
+NEAR_ZERO_LIMIT :: 1e-8
+
+vec3_near_zero :: proc(v: vec3) -> bool {
+    return v.x < NEAR_ZERO_LIMIT && v.y < NEAR_ZERO_LIMIT && v.z < NEAR_ZERO_LIMIT
 }
