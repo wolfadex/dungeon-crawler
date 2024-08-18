@@ -127,7 +127,24 @@ Material_Metal :: struct {
     fuzz: f64,
 }
 
-Material :: union {Material_Lambertian, Material_Metal}
+Material_Dielectric :: struct {
+    refraction_index: f64,
+}
+
+Material :: union {Material_Dielectric,Material_Lambertian, Material_Metal}
+
+scatter_dielectric ::proc(ray_in: Ray, hit_rec: ^Hit, material: Material_Dielectric) -> (attenuation: vec3, scattered: Ray, ok: bool) {
+    ri := hit_rec.is_front_face ? (1.0 / material.refraction_index) : material.refraction_index
+
+    unit_direction := linalg.normalize(ray_in.direction)
+    refracted := linalg.refract(unit_direction, hit_rec.normal, ri)
+
+    attenuation = {1.0, 1.0, 1.0}
+    scattered = { origin = hit_rec.point, direction = refracted }
+    ok = true
+
+    return attenuation, scattered, ok
+}
 
 scatter_metal :: proc(ray_in: Ray, hit_rec: ^Hit, material: Material_Metal) -> (attenuation: vec3, scattered: Ray, ok: bool) {
     reflected := linalg.reflect(ray_in.direction, hit_rec.normal)
@@ -297,6 +314,8 @@ ray_color :: proc(ray : Ray, depth: uint, hittables: ^[dynamic]Hittable) -> vec3
         ok : bool
 
         switch material in hit_rec.material {
+        case Material_Dielectric:
+            attenuation, scattered, ok = scatter_dielectric(ray, &hit_rec, material)
         case Material_Lambertian:
             attenuation, scattered, ok = scatter_lambertian(ray, &hit_rec, material)
         case Material_Metal:
@@ -367,7 +386,7 @@ main :: proc() {
 
     material_ground : Material = Material_Lambertian{ albedo = {0.8, 0.8, 0.0} }
     material_center : Material = Material_Lambertian{ albedo = {0.1, 0.2, 0.5} }
-    material_left   : Material = Material_Metal{ albedo = {0.8, 0.8, 0.8}, fuzz = 0.3 }
+    material_left   : Material = Material_Dielectric{ refraction_index = 1.50 }
     material_right  : Material = Material_Metal{ albedo = {0.8, 0.6, 0.2}, fuzz = 1.0 }
 
     world : [dynamic]Hittable = {
