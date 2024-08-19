@@ -138,18 +138,18 @@ scatter_dielectric ::proc(ray_in: Ray, hit_rec: ^Hit, material: Material_Dielect
 
     unit_direction := linalg.normalize(ray_in.direction)
     // refracted := linalg.refract(unit_direction, hit_rec.normal, refraction_index)
-    cos_theta := math.min(linalg.dot(-unit_direction, hit_rec.normal), 1.0);
-    sin_theta := math.sqrt(1.0 - cos_theta * cos_theta);
+    cos_theta := math.min(linalg.dot(-unit_direction, hit_rec.normal), 1.0)
+    sin_theta := math.sqrt(1.0 - cos_theta * cos_theta)
 
-    cannot_refract := refraction_index * sin_theta > 1.0;
+    cannot_refract := refraction_index * sin_theta > 1.0
     direction : vec3
 
-    if cannot_refract {
-        direction = linalg.reflect(unit_direction, hit_rec.normal);
+    if cannot_refract || reflectance(cos_theta, refraction_index) > rand.float64() {
+        direction = linalg.reflect(unit_direction, hit_rec.normal)
     } else{
-        direction = linalg.refract(unit_direction, hit_rec.normal, refraction_index);
+        direction = linalg.refract(unit_direction, hit_rec.normal, refraction_index)
     }
-    
+
     attenuation = {1.0, 1.0, 1.0}
     scattered = { origin = hit_rec.point, direction = direction }
     ok = true
@@ -549,4 +549,11 @@ NEAR_ZERO_LIMIT :: 1e-8
 
 vec3_near_zero :: proc(v: vec3) -> bool {
     return v.x < NEAR_ZERO_LIMIT && v.y < NEAR_ZERO_LIMIT && v.z < NEAR_ZERO_LIMIT
+}
+
+// Use Schlick's approximation for reflectance.
+reflectance :: proc(cosine: f64, refraction_index: f64) -> f64 {
+    r0 := (1 - refraction_index) / (1 + refraction_index)
+    r0 = r0 * r0
+    return r0 + (1 - r0) * math.pow((1 - cosine), 5)
 }
