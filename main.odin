@@ -397,13 +397,15 @@ main :: proc() {
 
     material_ground : Material = Material_Lambertian{ albedo = {0.8, 0.8, 0.0} }
     material_center : Material = Material_Lambertian{ albedo = {0.1, 0.2, 0.5} }
-    material_left   : Material = Material_Dielectric{ refraction_index = 1.00 / 1.33 }
+    material_left   : Material = Material_Dielectric{ refraction_index = 1.50 }
+    material_bubble : Material = Material_Dielectric{ refraction_index = 1.00 / 1.50 }
     material_right  : Material = Material_Metal{ albedo = {0.8, 0.6, 0.2}, fuzz = 1.0 }
 
     world : [dynamic]Hittable = {
         Sphere{ center = {  0.0, -100.5, -1.0} , radius = 100.0, material = &material_ground },
         Sphere{ center = {  0.0,    0.0, -1.2} , radius =   0.5, material = &material_center },
         Sphere{ center = { -1.0,    0.0, -1.0} , radius =   0.5, material = &material_left },
+        Sphere{ center = {-1.0,     0.0, -1.0} , radius =   0.4, material = &material_bubble },
         Sphere{ center = {  1.0,    0.0, -1.0} , radius =   0.5, material = &material_right },
     }
     defer delete(world)
