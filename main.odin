@@ -134,13 +134,24 @@ Material_Dielectric :: struct {
 Material :: union {Material_Dielectric,Material_Lambertian, Material_Metal}
 
 scatter_dielectric ::proc(ray_in: Ray, hit_rec: ^Hit, material: Material_Dielectric) -> (attenuation: vec3, scattered: Ray, ok: bool) {
-    ri := hit_rec.is_front_face ? (1.0 / material.refraction_index) : material.refraction_index
+    refraction_index := hit_rec.is_front_face ? (1.0 / material.refraction_index) : material.refraction_index
 
     unit_direction := linalg.normalize(ray_in.direction)
-    refracted := linalg.refract(unit_direction, hit_rec.normal, ri)
+    // refracted := linalg.refract(unit_direction, hit_rec.normal, refraction_index)
+    cos_theta := math.min(linalg.dot(-unit_direction, hit_rec.normal), 1.0);
+    sin_theta := math.sqrt(1.0 - cos_theta * cos_theta);
 
+    cannot_refract := refraction_index * sin_theta > 1.0;
+    direction : vec3
+
+    if cannot_refract {
+        direction = linalg.reflect(unit_direction, hit_rec.normal);
+    } else{
+        direction = linalg.refract(unit_direction, hit_rec.normal, refraction_index);
+    }
+    
     attenuation = {1.0, 1.0, 1.0}
-    scattered = { origin = hit_rec.point, direction = refracted }
+    scattered = { origin = hit_rec.point, direction = direction }
     ok = true
 
     return attenuation, scattered, ok
@@ -386,7 +397,7 @@ main :: proc() {
 
     material_ground : Material = Material_Lambertian{ albedo = {0.8, 0.8, 0.0} }
     material_center : Material = Material_Lambertian{ albedo = {0.1, 0.2, 0.5} }
-    material_left   : Material = Material_Dielectric{ refraction_index = 1.50 }
+    material_left   : Material = Material_Dielectric{ refraction_index = 1.00 / 1.33 }
     material_right  : Material = Material_Metal{ albedo = {0.8, 0.6, 0.2}, fuzz = 1.0 }
 
     world : [dynamic]Hittable = {
