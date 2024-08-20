@@ -189,10 +189,11 @@ Camera :: struct {
     // Set manually
     aspect_ratio : f64,        // Ratio of image width over height
     image_width : uint,        // Rendered image width in pixel count
-    center : vec3,             // Camera center
-    focal_length : f64,
+    center : vec3,             // Camera center / Point camera is looking from
     samples_per_pixel: uint,   // Count of random samples for each pixel
     vertical_fov: f64,         // Vertical view angle (field of view)
+    look_at : vec3,            // Point camera is looking at
+    up_direction : vec3,       // Camera-relative "up" direction
 
     // Calculated
     image_height : uint,       // Rendered image height
@@ -210,21 +211,33 @@ camera_create :: proc() -> Camera {
     center : vec3 = {0, 0, 0}
     vertical_fov : f64 = 90
 
+    look_at : vec3 = {0,0,-1}
+    up_direction : vec3 = {0,1,0}
+
     // Determine viewport dimensions.
-    focal_length := 1.0
+    // focal_length := 1.0
+    focal_length := linalg.length(center - look_at)
     theta := math.to_radians(vertical_fov)
     h := math.tan(theta / 2)
     viewport_height := 2 * h * focal_length
     viewport_width := viewport_height * (f64(image_width) / f64(image_height))
 
+    // Calculate the u,v,w unit basis vectors for the camera coordinate frame.
+    w : vec3 = linalg.normalize(center - look_at)
+    u : vec3 = linalg.normalize(linalg.cross(up_direction, w))
+    v : vec3 = linalg.cross(w, u)
+
     // Calculate the vectors across the horizontal and down the vertical viewport edges.
-    viewport_u : vec3 = {viewport_width, 0, 0}
-    viewport_v : vec3 = {0, -viewport_height, 0}
+    // viewport_u : vec3 = {viewport_width, 0, 0}
+    // viewport_v : vec3 = {0, -viewport_height, 0}
+    viewport_u : vec3 = viewport_width * u    // Vector across viewport horizontal edge
+    viewport_v : vec3 = viewport_height * -v  // Vector down viewport vertical edge
 
     // Calculate the horizontal and vertical delta vectors from pixel to pixel.
     pixel_delta_u := viewport_u / f64(image_width)
     pixel_delta_v := viewport_v / f64(image_height)
-    viewport_upper_left := center - {0, 0, focal_length} - viewport_u / 2 - viewport_v / 2
+    viewport_upper_left := center - (focal_length * w) - viewport_u / 2 - viewport_v / 2
+    // viewport_upper_left := center - {0, 0, focal_length} - viewport_u / 2 - viewport_v / 2
 
     samples_per_pixel : uint = 10
 
@@ -232,9 +245,10 @@ camera_create :: proc() -> Camera {
         aspect_ratio = aspect_ratio,
         image_width = image_width,
         image_height = image_height,
-        center = center,
 
-        focal_length = focal_length,
+        center = center,
+        look_at = look_at,
+        up_direction = up_direction,
 
         pixel_delta_u = pixel_delta_u,
         pixel_delta_v = pixel_delta_v,
@@ -246,22 +260,32 @@ camera_create :: proc() -> Camera {
         pixel_samples_scale = 1.0 / f64(samples_per_pixel),
         max_depth = 10,
         vertical_fov = vertical_fov,
+
     }
 }
 
 camera_reinitialize :: proc(cam: ^Camera) {
     image_height := uint(f64(cam.image_width) / cam.aspect_ratio)
+    focal_length := linalg.length(cam.center - cam.look_at)
     theta := math.to_radians(cam.vertical_fov)
     h := math.tan(theta / 2)
-    viewport_height := 2 * h * cam.focal_length
+    viewport_height := 2 * h * focal_length
     viewport_width := viewport_height * (f64(cam.image_width) / f64(image_height))
 
-    viewport_u : vec3 = {viewport_width, 0, 0}
-    viewport_v : vec3 = {0, -viewport_height, 0}
+    // Calculate the u,v,w unit basis vectors for the camera coordinate frame.
+    w : vec3 = linalg.normalize(cam.center - cam.look_at)
+    u : vec3 = linalg.normalize(linalg.cross(cam.up_direction, w))
+    v : vec3 = linalg.cross(w, u)
+
+    // viewport_u : vec3 = {viewport_width, 0, 0}
+    // viewport_v : vec3 = {0, -viewport_height, 0}
+    viewport_u : vec3 = viewport_width * u    // Vector across viewport horizontal edge
+    viewport_v : vec3 = viewport_height * -v  // Vector down viewport vertical edge
 
     pixel_delta_u := viewport_u / f64(cam.image_width)
     pixel_delta_v := viewport_v / f64(image_height)
-    viewport_upper_left := cam.center - {0, 0, cam.focal_length} - viewport_u / 2 - viewport_v / 2
+    viewport_upper_left := cam.center - (focal_length * w) - viewport_u / 2 - viewport_v / 2
+    // viewport_upper_left := cam.center - {0, 0, cam.focal_length} - viewport_u / 2 - viewport_v / 2
 
 
     cam.pixel_delta_u = pixel_delta_u
@@ -392,37 +416,35 @@ main :: proc() {
         defer reset_tracking_allocator(&tracking_allocator)
     }
 
-    ASPECT_RATIO :: 16.0 / 9.0
-    WINDOW_WIDTH :: 640
-
     camera := camera_create()
-    camera.aspect_ratio = ASPECT_RATIO
-    // camera.image_width = WINDOW_WIDTH
+    camera.aspect_ratio = 16.0 / 9.0
     camera.image_width = 400
-    // camera.image_width = 100
     camera.samples_per_pixel = 100
     camera.max_depth = 50
+    camera.center = {-2,2,1}
+    camera.look_at = {0,0,-1}
+    camera.up_direction = {0,1,0}
+    camera.vertical_fov = 20
     camera_reinitialize(&camera)
 
-    // material_ground : Material = Material_Lambertian{ albedo = {0.8, 0.8, 0.0} }
-    // material_center : Material = Material_Lambertian{ albedo = {0.1, 0.2, 0.5} }
-    // material_left   : Material = Material_Dielectric{ refraction_index = 1.50 }
-    // material_bubble : Material = Material_Dielectric{ refraction_index = 1.00 / 1.50 }
-    // material_right  : Material = Material_Metal{ albedo = {0.8, 0.6, 0.2}, fuzz = 1.0 }
-    R := math.cos_f64(math.PI / 4)
+    material_ground : Material = Material_Lambertian{ albedo = {0.8, 0.8, 0.0} }
+    material_center : Material = Material_Lambertian{ albedo = {0.1, 0.2, 0.5} }
+    material_left   : Material = Material_Dielectric{ refraction_index = 1.50 }
+    material_bubble : Material = Material_Dielectric{ refraction_index = 1.00 / 1.50 }
+    material_right  : Material = Material_Metal{ albedo = {0.8, 0.6, 0.2}, fuzz = 1.0 }
+    // R := math.cos_f64(math.PI / 4)
 
-    material_left  : Material = Material_Lambertian{ albedo = {0,0,1} }
-    material_right : Material = Material_Lambertian{ albedo = {1,0,0} }
-
+    // material_left  : Material = Material_Lambertian{ albedo = {0,0,1} }
+    // material_right : Material = Material_Lambertian{ albedo = {1,0,0} }
 
     world : [dynamic]Hittable = {
-        // Sphere{ center = {  0.0, -100.5, -1.0} , radius = 100.0, material = &material_ground },
-        // Sphere{ center = {  0.0,    0.0, -1.2} , radius =   0.5, material = &material_center },
-        // Sphere{ center = { -1.0,    0.0, -1.0} , radius =   0.5, material = &material_left },
-        // Sphere{ center = {-1.0,     0.0, -1.0} , radius =   0.4, material = &material_bubble },
-        // Sphere{ center = {  1.0,    0.0, -1.0} , radius =   0.5, material = &material_right },
-        Sphere{ center = {-R, 0, -1}, radius = R, material = &material_left },
-        Sphere{ center = { R, 0, -1}, radius = R, material = &material_right },
+        Sphere{ center = {  0.0, -100.5, -1.0} , radius = 100.0, material = &material_ground },
+        Sphere{ center = {  0.0,    0.0, -1.2} , radius =   0.5, material = &material_center },
+        Sphere{ center = { -1.0,    0.0, -1.0} , radius =   0.5, material = &material_left },
+        Sphere{ center = {-1.0,     0.0, -1.0} , radius =   0.4, material = &material_bubble },
+        Sphere{ center = {  1.0,    0.0, -1.0} , radius =   0.5, material = &material_right },
+        // Sphere{ center = {-R, 0, -1}, radius = R, material = &material_left },
+        // Sphere{ center = { R, 0, -1}, radius = R, material = &material_right },
     }
     defer delete(world)
 
