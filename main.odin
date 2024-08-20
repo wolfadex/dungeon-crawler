@@ -191,8 +191,8 @@ Camera :: struct {
     image_width : uint,        // Rendered image width in pixel count
     center : vec3,             // Camera center
     focal_length : f64,
-    viewport_height : f64,
     samples_per_pixel: uint,   // Count of random samples for each pixel
+    vertical_fov: f64,         // Vertical view angle (field of view)
 
     // Calculated
     image_height : uint,       // Rendered image height
@@ -208,10 +208,13 @@ camera_create :: proc() -> Camera {
     image_width : uint = 100
     image_height := uint(f64(image_width) / aspect_ratio)
     center : vec3 = {0, 0, 0}
+    vertical_fov : f64 = 90
 
     // Determine viewport dimensions.
     focal_length := 1.0
-    viewport_height := 2.0
+    theta := math.to_radians(vertical_fov)
+    h := math.tan(theta / 2)
+    viewport_height := 2 * h * focal_length
     viewport_width := viewport_height * (f64(image_width) / f64(image_height))
 
     // Calculate the vectors across the horizontal and down the vertical viewport edges.
@@ -232,7 +235,6 @@ camera_create :: proc() -> Camera {
         center = center,
 
         focal_length = focal_length,
-        viewport_height = viewport_height,
 
         pixel_delta_u = pixel_delta_u,
         pixel_delta_v = pixel_delta_v,
@@ -243,15 +245,19 @@ camera_create :: proc() -> Camera {
         samples_per_pixel = samples_per_pixel,
         pixel_samples_scale = 1.0 / f64(samples_per_pixel),
         max_depth = 10,
+        vertical_fov = vertical_fov,
     }
 }
 
 camera_reinitialize :: proc(cam: ^Camera) {
     image_height := uint(f64(cam.image_width) / cam.aspect_ratio)
-    viewport_width := cam.viewport_height * (f64(cam.image_width) / f64(image_height))
+    theta := math.to_radians(cam.vertical_fov)
+    h := math.tan(theta / 2)
+    viewport_height := 2 * h * cam.focal_length
+    viewport_width := viewport_height * (f64(cam.image_width) / f64(image_height))
 
     viewport_u : vec3 = {viewport_width, 0, 0}
-    viewport_v : vec3 = {0, -cam.viewport_height, 0}
+    viewport_v : vec3 = {0, -viewport_height, 0}
 
     pixel_delta_u := viewport_u / f64(cam.image_width)
     pixel_delta_v := viewport_v / f64(image_height)
@@ -285,9 +291,9 @@ camera_render :: proc(camera: Camera, hittables : ^[dynamic]Hittable, renderer: 
     height := c.int(camera.image_height)
     width := c.int(camera.image_width)
 
-    for x : c.int = 0; x < width; x += 1 {
+    for y : c.int = 0; y < height; y += 1 {
         // log.debug("Scan lines remaining: ", height - y)
-        for y : c.int = 0; y < height; y += 1 {
+        for x : c.int = 0; x < width; x += 1 {
 
             pixel_color : vec3 = {0, 0, 0}
 
@@ -391,22 +397,32 @@ main :: proc() {
 
     camera := camera_create()
     camera.aspect_ratio = ASPECT_RATIO
-    camera.image_width = WINDOW_WIDTH
+    // camera.image_width = WINDOW_WIDTH
+    camera.image_width = 400
+    // camera.image_width = 100
+    camera.samples_per_pixel = 100
     camera.max_depth = 50
     camera_reinitialize(&camera)
 
-    material_ground : Material = Material_Lambertian{ albedo = {0.8, 0.8, 0.0} }
-    material_center : Material = Material_Lambertian{ albedo = {0.1, 0.2, 0.5} }
-    material_left   : Material = Material_Dielectric{ refraction_index = 1.50 }
-    material_bubble : Material = Material_Dielectric{ refraction_index = 1.00 / 1.50 }
-    material_right  : Material = Material_Metal{ albedo = {0.8, 0.6, 0.2}, fuzz = 1.0 }
+    // material_ground : Material = Material_Lambertian{ albedo = {0.8, 0.8, 0.0} }
+    // material_center : Material = Material_Lambertian{ albedo = {0.1, 0.2, 0.5} }
+    // material_left   : Material = Material_Dielectric{ refraction_index = 1.50 }
+    // material_bubble : Material = Material_Dielectric{ refraction_index = 1.00 / 1.50 }
+    // material_right  : Material = Material_Metal{ albedo = {0.8, 0.6, 0.2}, fuzz = 1.0 }
+    R := math.cos_f64(math.PI / 4)
+
+    material_left  : Material = Material_Lambertian{ albedo = {0,0,1} }
+    material_right : Material = Material_Lambertian{ albedo = {1,0,0} }
+
 
     world : [dynamic]Hittable = {
-        Sphere{ center = {  0.0, -100.5, -1.0} , radius = 100.0, material = &material_ground },
-        Sphere{ center = {  0.0,    0.0, -1.2} , radius =   0.5, material = &material_center },
-        Sphere{ center = { -1.0,    0.0, -1.0} , radius =   0.5, material = &material_left },
-        Sphere{ center = {-1.0,     0.0, -1.0} , radius =   0.4, material = &material_bubble },
-        Sphere{ center = {  1.0,    0.0, -1.0} , radius =   0.5, material = &material_right },
+        // Sphere{ center = {  0.0, -100.5, -1.0} , radius = 100.0, material = &material_ground },
+        // Sphere{ center = {  0.0,    0.0, -1.2} , radius =   0.5, material = &material_center },
+        // Sphere{ center = { -1.0,    0.0, -1.0} , radius =   0.5, material = &material_left },
+        // Sphere{ center = {-1.0,     0.0, -1.0} , radius =   0.4, material = &material_bubble },
+        // Sphere{ center = {  1.0,    0.0, -1.0} , radius =   0.5, material = &material_right },
+        Sphere{ center = {-R, 0, -1}, radius = R, material = &material_left },
+        Sphere{ center = { R, 0, -1}, radius = R, material = &material_right },
     }
     defer delete(world)
 
