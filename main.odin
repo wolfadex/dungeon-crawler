@@ -53,7 +53,7 @@ Hit :: struct {
 Sphere :: struct {
     center: vec3,
     radius: f64,
-    material: ^Material,
+    material: Material,
 }
 Hittable :: union {Sphere}
 
@@ -110,7 +110,8 @@ hit_sphere :: proc(sphere : Sphere, ray : Ray, hit_rec : ^Hit, t_interval : Inte
         outward_normal :=  (hit_rec.point - sphere.center) / sphere.radius
         hit_rec.is_front_face = linalg.dot(ray.direction, outward_normal) < 0
         hit_rec.normal = hit_rec.is_front_face ? outward_normal : -outward_normal
-        hit_rec.material = sphere.material
+        carl : Material = sphere.material
+        hit_rec.material = &carl
 
         return true
     }
@@ -194,6 +195,8 @@ Camera :: struct {
     vertical_fov: f64,         // Vertical view angle (field of view)
     look_at : vec3,            // Point camera is looking at
     up_direction : vec3,       // Camera-relative "up" direction
+    defocus_angle : f64,       // Variation angle of rays through each pixel
+    focus_dist : f64,          // Distance from camera lookfrom point to plane of perfect focus
 
     // Calculated
     image_height : uint,       // Rendered image height
@@ -202,6 +205,8 @@ Camera :: struct {
     pixel00_loc : vec3,        // Location of pixel 0, 0
     pixel_samples_scale : f64, // Count of random samples for each pixel
     max_depth  : uint,         // Maximum number of ray bounces into scene
+    defocus_disk_u : vec3,     // Defocus disk horizontal radius
+    defocus_disk_v : vec3,     // Defocus disk vertical radius
 }
 
 camera_create :: proc() -> Camera {
@@ -213,13 +218,13 @@ camera_create :: proc() -> Camera {
 
     look_at : vec3 = {0,0,-1}
     up_direction : vec3 = {0,1,0}
+    defocus_angle : f64 = 0
+    focus_dist : f64 = 10
 
     // Determine viewport dimensions.
-    // focal_length := 1.0
-    focal_length := linalg.length(center - look_at)
     theta := math.to_radians(vertical_fov)
     h := math.tan(theta / 2)
-    viewport_height := 2 * h * focal_length
+    viewport_height := 2 * h * focus_dist
     viewport_width := viewport_height * (f64(image_width) / f64(image_height))
 
     // Calculate the u,v,w unit basis vectors for the camera coordinate frame.
@@ -228,16 +233,18 @@ camera_create :: proc() -> Camera {
     v : vec3 = linalg.cross(w, u)
 
     // Calculate the vectors across the horizontal and down the vertical viewport edges.
-    // viewport_u : vec3 = {viewport_width, 0, 0}
-    // viewport_v : vec3 = {0, -viewport_height, 0}
     viewport_u : vec3 = viewport_width * u    // Vector across viewport horizontal edge
     viewport_v : vec3 = viewport_height * -v  // Vector down viewport vertical edge
 
     // Calculate the horizontal and vertical delta vectors from pixel to pixel.
     pixel_delta_u := viewport_u / f64(image_width)
     pixel_delta_v := viewport_v / f64(image_height)
-    viewport_upper_left := center - (focal_length * w) - viewport_u / 2 - viewport_v / 2
-    // viewport_upper_left := center - {0, 0, focal_length} - viewport_u / 2 - viewport_v / 2
+    viewport_upper_left := center - (focus_dist * w) - viewport_u / 2 - viewport_v / 2
+
+    // Calculate the camera defocus disk basis vectors.
+    defocus_radius := focus_dist * math.tan(math.to_radians(defocus_angle / 2))
+    defocus_disk_u := u * defocus_radius
+    defocus_disk_v := v * defocus_radius
 
     samples_per_pixel : uint = 10
 
@@ -250,6 +257,9 @@ camera_create :: proc() -> Camera {
         look_at = look_at,
         up_direction = up_direction,
 
+        defocus_angle = defocus_angle,
+        focus_dist = focus_dist,
+
         pixel_delta_u = pixel_delta_u,
         pixel_delta_v = pixel_delta_v,
 
@@ -261,15 +271,18 @@ camera_create :: proc() -> Camera {
         max_depth = 10,
         vertical_fov = vertical_fov,
 
+        defocus_disk_u = defocus_disk_u,
+        defocus_disk_v = defocus_disk_v,
     }
 }
 
 camera_reinitialize :: proc(cam: ^Camera) {
     image_height := uint(f64(cam.image_width) / cam.aspect_ratio)
-    focal_length := linalg.length(cam.center - cam.look_at)
+    // focal_length := linalg.length(cam.center - cam.look_at)
     theta := math.to_radians(cam.vertical_fov)
     h := math.tan(theta / 2)
-    viewport_height := 2 * h * focal_length
+    // viewport_height := 2 * h * focal_length
+    viewport_height := 2 * h * cam.focus_dist
     viewport_width := viewport_height * (f64(cam.image_width) / f64(image_height))
 
     // Calculate the u,v,w unit basis vectors for the camera coordinate frame.
@@ -277,15 +290,20 @@ camera_reinitialize :: proc(cam: ^Camera) {
     u : vec3 = linalg.normalize(linalg.cross(cam.up_direction, w))
     v : vec3 = linalg.cross(w, u)
 
-    // viewport_u : vec3 = {viewport_width, 0, 0}
-    // viewport_v : vec3 = {0, -viewport_height, 0}
+    // Calculate the vectors across the horizontal and down the vertical viewport edges.
     viewport_u : vec3 = viewport_width * u    // Vector across viewport horizontal edge
     viewport_v : vec3 = viewport_height * -v  // Vector down viewport vertical edge
+    // viewport_u : vec3 = {viewport_width, 0, 0}
+    // viewport_v : vec3 = {0, -viewport_height, 0}
 
     pixel_delta_u := viewport_u / f64(cam.image_width)
     pixel_delta_v := viewport_v / f64(image_height)
-    viewport_upper_left := cam.center - (focal_length * w) - viewport_u / 2 - viewport_v / 2
-    // viewport_upper_left := cam.center - {0, 0, cam.focal_length} - viewport_u / 2 - viewport_v / 2
+    viewport_upper_left := cam.center - (cam.focus_dist * w) - viewport_u / 2 - viewport_v / 2
+
+    // Calculate the camera defocus disk basis vectors.
+    defocus_radius := cam.focus_dist * math.tan(math.to_radians(cam.defocus_angle / 2))
+    defocus_disk_u := u * defocus_radius
+    defocus_disk_v := v * defocus_radius
 
 
     cam.pixel_delta_u = pixel_delta_u
@@ -293,6 +311,8 @@ camera_reinitialize :: proc(cam: ^Camera) {
     cam.image_height = image_height
     cam.pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v)
     cam.pixel_samples_scale = 1.0 / f64(cam.samples_per_pixel)
+    cam.defocus_disk_u = defocus_disk_u
+    cam.defocus_disk_v = defocus_disk_v
 }
 
 
@@ -302,8 +322,15 @@ camera_to_ray :: proc(camera: Camera, x: int, y: int) -> Ray {
 
     offset := sample_square()
     pixel_sample := camera.pixel00_loc + ((f64(x) + offset.x) * camera.pixel_delta_u) + ((f64(y) + offset.y) * camera.pixel_delta_v)
+    origin := (camera.defocus_angle <= 0) ? camera.center : defocus_disk_sample(camera)
+    direction := pixel_sample - origin
 
-    return { origin = camera.center, direction = pixel_sample - camera.center }
+    return { origin = origin, direction = direction }
+}
+
+defocus_disk_sample :: proc(camera: Camera) -> vec3 {
+    p := rand_in_unit_disk()
+    return camera.center + (p.x * camera.defocus_disk_u) + (p.y * camera.defocus_disk_v)
 }
 
 // Returns the vector to a random point in the [-.5,-.5]-[+.5,+.5] unit square.
@@ -316,9 +343,8 @@ camera_render :: proc(camera: Camera, hittables : ^[dynamic]Hittable, renderer: 
     width := c.int(camera.image_width)
 
     for y : c.int = 0; y < height; y += 1 {
-        // log.debug("Scan lines remaining: ", height - y)
+        log.debug("Scan lines remaining: ", height - y)
         for x : c.int = 0; x < width; x += 1 {
-
             pixel_color : vec3 = {0, 0, 0}
 
             for sample : uint = 0; sample < camera.samples_per_pixel; sample += 1 {
@@ -417,36 +443,93 @@ main :: proc() {
     }
 
     camera := camera_create()
-    camera.aspect_ratio = 16.0 / 9.0
-    camera.image_width = 400
-    camera.samples_per_pixel = 100
-    camera.max_depth = 50
-    camera.center = {-2,2,1}
-    camera.look_at = {0,0,-1}
-    camera.up_direction = {0,1,0}
-    camera.vertical_fov = 20
+    // camera.aspect_ratio = 16.0 / 9.0
+    // camera.image_width = 400
+    // camera.samples_per_pixel = 100
+    // camera.max_depth = 50
+    // camera.vertical_fov = 20
+    // camera.center = {-2,2,1}
+    // camera.look_at = {0,0,-1}
+    // camera.up_direction = {0,1,0}
+
+    // camera.defocus_angle = 10.0
+    // camera.focus_dist    = 3.4
+    //
+    camera.aspect_ratio      = 16.0 / 9.0
+    camera.image_width       = 1200
+    // camera.image_width       = 100
+    camera.samples_per_pixel = 500
+    camera.max_depth         = 50
+
+    camera.vertical_fov     = 20
+    camera.center = {13,2,3}
+    camera.look_at   = {0,0,0}
+    camera.up_direction      = {0,1,0}
+
+    camera.defocus_angle = 0.6
+    camera.focus_dist    = 10.0
     camera_reinitialize(&camera)
 
-    material_ground : Material = Material_Lambertian{ albedo = {0.8, 0.8, 0.0} }
-    material_center : Material = Material_Lambertian{ albedo = {0.1, 0.2, 0.5} }
-    material_left   : Material = Material_Dielectric{ refraction_index = 1.50 }
-    material_bubble : Material = Material_Dielectric{ refraction_index = 1.00 / 1.50 }
-    material_right  : Material = Material_Metal{ albedo = {0.8, 0.6, 0.2}, fuzz = 1.0 }
-    // R := math.cos_f64(math.PI / 4)
+    // material_ground : Material = Material_Lambertian{ albedo = {0.8, 0.8, 0.0} }
+    // material_center : Material = Material_Lambertian{ albedo = {0.1, 0.2, 0.5} }
+    // material_left   : Material = Material_Dielectric{ refraction_index = 1.50 }
+    // material_bubble : Material = Material_Dielectric{ refraction_index = 1.00 / 1.50 }
+    // material_right  : Material = Material_Metal{ albedo = {0.8, 0.6, 0.2}, fuzz = 1.0 }
 
+    // R := math.cos_f64(math.PI / 4)
     // material_left  : Material = Material_Lambertian{ albedo = {0,0,1} }
     // material_right : Material = Material_Lambertian{ albedo = {1,0,0} }
 
     world : [dynamic]Hittable = {
-        Sphere{ center = {  0.0, -100.5, -1.0} , radius = 100.0, material = &material_ground },
-        Sphere{ center = {  0.0,    0.0, -1.2} , radius =   0.5, material = &material_center },
-        Sphere{ center = { -1.0,    0.0, -1.0} , radius =   0.5, material = &material_left },
-        Sphere{ center = {-1.0,     0.0, -1.0} , radius =   0.4, material = &material_bubble },
-        Sphere{ center = {  1.0,    0.0, -1.0} , radius =   0.5, material = &material_right },
+        // Sphere{ center = {  0.0, -100.5, -1.0} , radius = 100.0, material = &material_ground },
+        // Sphere{ center = {  0.0,    0.0, -1.2} , radius =   0.5, material = &material_center },
+        // Sphere{ center = { -1.0,    0.0, -1.0} , radius =   0.5, material = &material_left },
+        // Sphere{ center = {-1.0,     0.0, -1.0} , radius =   0.4, material = &material_bubble },
+        // Sphere{ center = {  1.0,    0.0, -1.0} , radius =   0.5, material = &material_right },
+        //
         // Sphere{ center = {-R, 0, -1}, radius = R, material = &material_left },
         // Sphere{ center = { R, 0, -1}, radius = R, material = &material_right },
     }
     defer delete(world)
+
+    ground_material : Material = Material_Lambertian{ albedo = {0.5, 0.5, 0.5} }
+    append(&world, Sphere{ center = {  0.0, -1000.0, 0.0} , radius = 1000.0, material = ground_material })
+
+    for a := -11; a < 11; a += 1 {
+        for b := -11; b < 11; b += 1 {
+            center : vec3 = {f64(a) + 0.9 * rand.float64(), 0.2, f64(b) + 0.9 * rand.float64()}
+
+            if (linalg.length(center - {4, 0.2, 0}) > 0.9) {
+                choose_mat := rand.float64()
+
+                if (choose_mat < 0.8) {
+                    // diffuse
+                    albedo := rand_vec3(0, 1) * rand_vec3(0, 1)
+                    sphere_material : Material = Material_Lambertian{ albedo = albedo }
+                    append(&world, Sphere{ center = center , radius = 0.2, material = sphere_material })
+                } else if (choose_mat < 0.95) {
+                    // metal
+                    albedo := rand_vec3(0.5, 1)
+                    fuzz := rand.float64_range(0, 0.5)
+                    sphere_material : Material = Material_Metal{ albedo = albedo, fuzz = fuzz }
+                    append(&world, Sphere{ center = center , radius = 0.2, material = sphere_material })
+                } else {
+                    // glass
+                    sphere_material : Material = Material_Dielectric{ refraction_index = 1.50 }
+                    append(&world, Sphere{ center = center , radius = 0.2, material = sphere_material })
+                }
+            }
+        }
+    }
+
+    material1 : Material = Material_Dielectric{ refraction_index = 1.50 }
+    append(&world, Sphere{ center = {  0.0, 1.0, 0.0} , radius = 1.0, material = material1 })
+
+    material2 : Material = Material_Lambertian{ albedo = {0.4, 0.2, 0.1} }
+    append(&world, Sphere{ center = {  -4.0, 1.0, 0.0} , radius = 1.0, material = material2 })
+
+    material3 : Material = Material_Metal{ albedo = {0.7, 0.6, 0.5}, fuzz = 0.0 }
+    append(&world, Sphere{ center = {  4.0, 1.0, 0.0} , radius = 1.0, material = material3 })
 
     window : ^SDL.Window
     windowSurface : ^SDL.Surface
@@ -582,6 +665,15 @@ rand_on_hemisphere :: proc(normal: vec3) -> vec3{
         return on_unit_sphere
     } else {
         return -on_unit_sphere
+    }
+}
+
+rand_in_unit_disk :: proc() -> vec2 {
+    for {
+        p : vec2 = {rand.float64_range(-1,1), rand.float64_range(-1,1)}
+        if linalg.dot(p, p) < 1 {
+            return p
+        }
     }
 }
 
