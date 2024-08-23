@@ -278,10 +278,8 @@ camera_create :: proc() -> Camera {
 
 camera_reinitialize :: proc(cam: ^Camera) {
     image_height := uint(f64(cam.image_width) / cam.aspect_ratio)
-    // focal_length := linalg.length(cam.center - cam.look_at)
     theta := math.to_radians(cam.vertical_fov)
     h := math.tan(theta / 2)
-    // viewport_height := 2 * h * focal_length
     viewport_height := 2 * h * cam.focus_dist
     viewport_width := viewport_height * (f64(cam.image_width) / f64(image_height))
 
@@ -293,8 +291,6 @@ camera_reinitialize :: proc(cam: ^Camera) {
     // Calculate the vectors across the horizontal and down the vertical viewport edges.
     viewport_u : vec3 = viewport_width * u    // Vector across viewport horizontal edge
     viewport_v : vec3 = viewport_height * -v  // Vector down viewport vertical edge
-    // viewport_u : vec3 = {viewport_width, 0, 0}
-    // viewport_v : vec3 = {0, -viewport_height, 0}
 
     pixel_delta_u := viewport_u / f64(cam.image_width)
     pixel_delta_v := viewport_v / f64(image_height)
@@ -443,21 +439,8 @@ main :: proc() {
     }
 
     camera := camera_create()
-    // camera.aspect_ratio = 16.0 / 9.0
-    // camera.image_width = 400
-    // camera.samples_per_pixel = 100
-    // camera.max_depth = 50
-    // camera.vertical_fov = 20
-    // camera.center = {-2,2,1}
-    // camera.look_at = {0,0,-1}
-    // camera.up_direction = {0,1,0}
-
-    // camera.defocus_angle = 10.0
-    // camera.focus_dist    = 3.4
-    //
     camera.aspect_ratio      = 16.0 / 9.0
     camera.image_width       = 1200
-    // camera.image_width       = 100
     camera.samples_per_pixel = 500
     camera.max_depth         = 50
 
@@ -470,26 +453,7 @@ main :: proc() {
     camera.focus_dist    = 10.0
     camera_reinitialize(&camera)
 
-    // material_ground : Material = Material_Lambertian{ albedo = {0.8, 0.8, 0.0} }
-    // material_center : Material = Material_Lambertian{ albedo = {0.1, 0.2, 0.5} }
-    // material_left   : Material = Material_Dielectric{ refraction_index = 1.50 }
-    // material_bubble : Material = Material_Dielectric{ refraction_index = 1.00 / 1.50 }
-    // material_right  : Material = Material_Metal{ albedo = {0.8, 0.6, 0.2}, fuzz = 1.0 }
-
-    // R := math.cos_f64(math.PI / 4)
-    // material_left  : Material = Material_Lambertian{ albedo = {0,0,1} }
-    // material_right : Material = Material_Lambertian{ albedo = {1,0,0} }
-
-    world : [dynamic]Hittable = {
-        // Sphere{ center = {  0.0, -100.5, -1.0} , radius = 100.0, material = &material_ground },
-        // Sphere{ center = {  0.0,    0.0, -1.2} , radius =   0.5, material = &material_center },
-        // Sphere{ center = { -1.0,    0.0, -1.0} , radius =   0.5, material = &material_left },
-        // Sphere{ center = {-1.0,     0.0, -1.0} , radius =   0.4, material = &material_bubble },
-        // Sphere{ center = {  1.0,    0.0, -1.0} , radius =   0.5, material = &material_right },
-        //
-        // Sphere{ center = {-R, 0, -1}, radius = R, material = &material_left },
-        // Sphere{ center = { R, 0, -1}, radius = R, material = &material_right },
-    }
+    world : [dynamic]Hittable = {}
     defer delete(world)
 
     ground_material : Material = Material_Lambertian{ albedo = {0.5, 0.5, 0.5} }
